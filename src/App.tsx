@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import ActivityDialog from './ActivityDialog'
 import AuthScreen, { Mark } from './AuthScreen'
-import Studies from './Studies'
+import Projects from './Projects'
 import { addDays, bahiaToday, currentOrNextActivity, dayItems, formatDate, weeklyProgress, weekdayShort, weekStart } from './domain'
 import { createDataAccess } from './data'
 import { configurationError, supabase } from './supabase'
-import type { Completion, RoutineDraft, RoutineItem, StudyGoal, StudyGoalDraft } from './types'
+import type { Completion, ProjectDraft, ProjectStageDraft, ProjectTaskDraft, ProjectTree, RoutineDraft, RoutineItem } from './types'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -19,10 +19,10 @@ export default function App() {
   const [error, setError] = useState('')
   const [dialogItem, setDialogItem] = useState<RoutineItem | null | undefined>(undefined)
   const [clockNow, setClockNow] = useState(() => new Date())
-  const [section, setSection] = useState<'routine' | 'studies'>('routine')
-  const [studyGoals, setStudyGoals] = useState<StudyGoal[]>([])
-  const [studyLoading, setStudyLoading] = useState(false)
-  const [studyError, setStudyError] = useState('')
+  const [section, setSection] = useState<'routine' | 'projects'>('routine')
+  const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [], stages: [], tasks: [] })
+  const [projectLoading, setProjectLoading] = useState(false)
+  const [projectError, setProjectError] = useState('')
 
   useEffect(() => {
     if (!supabase) return
@@ -78,27 +78,32 @@ export default function App() {
   }, [dataAccess, startOfWeek])
 
   useEffect(() => {
-    if (section !== 'studies') return
+    if (section !== 'projects') return
     let active = true
-    setStudyLoading(true)
-    setStudyError('')
-    dataAccess.loadStudyGoals().then((goals) => { if (active) setStudyGoals(goals) }).catch((cause: unknown) => { if (active) setStudyError(cause instanceof Error ? cause.message : 'Não foi possível carregar os objetivos.') }).finally(() => { if (active) setStudyLoading(false) })
+    setProjectLoading(true)
+    setProjectError('')
+    dataAccess.loadProjects().then((tree) => { if (active) setProjectTree(tree) }).catch((cause: unknown) => { if (active) setProjectError(cause instanceof Error ? cause.message : 'Não foi possível carregar os projetos.') }).finally(() => { if (active) setProjectLoading(false) })
     return () => { active = false }
   }, [dataAccess, section])
 
-  async function saveStudyGoal(draft: StudyGoalDraft, id?: string) {
-    try { const saved = await dataAccess.saveStudyGoal(draft, id); setStudyGoals((current) => [...current.filter((goal) => goal.id !== saved.id), saved].sort((a, b) => a.week_start.localeCompare(b.week_start))); setStudyError('') }
-    catch (cause) { setStudyError(cause instanceof Error ? cause.message : 'Não foi possível salvar o objetivo.'); throw cause }
+  async function refreshProjects() {
+    setProjectTree(await dataAccess.loadProjects())
   }
 
-  async function toggleStudyGoal(goal: StudyGoal) {
-    try { const saved = await dataAccess.completeStudyGoal(goal.id, !goal.completed_at); setStudyGoals((current) => current.map((entry) => entry.id === saved.id ? saved : entry)); setStudyError('') }
-    catch (cause) { setStudyError(cause instanceof Error ? cause.message : 'Não foi possível atualizar o objetivo.') }
+  async function projectMutation(action: () => Promise<unknown>, fallback: string) {
+    try { await action(); await refreshProjects(); setProjectError('') }
+    catch (cause) { setProjectError(cause instanceof Error ? cause.message : fallback); throw cause }
   }
 
-  async function deleteStudyGoal(goal: StudyGoal) {
-    try { await dataAccess.deleteStudyGoal(goal.id); setStudyGoals((current) => current.filter((entry) => entry.id !== goal.id && entry.parent_goal_id !== goal.id)); setStudyError('') }
-    catch (cause) { setStudyError(cause instanceof Error ? cause.message : 'Não foi possível excluir o objetivo.') }
+  const projectActions = {
+    onSaveProject: (draft: ProjectDraft, id?: string) => projectMutation(() => dataAccess.saveProject(draft, id), 'Não foi possível salvar o projeto.'),
+    onDeleteProject: (id: string) => projectMutation(() => dataAccess.deleteProject(id), 'Não foi possível excluir o projeto.'),
+    onSaveStage: (projectId: string, draft: ProjectStageDraft, id?: string) => projectMutation(() => dataAccess.saveProjectStage(projectId, draft, id), 'Não foi possível salvar a etapa.'),
+    onCompleteStage: (id: string, completed: boolean) => projectMutation(() => dataAccess.completeProjectStage(id, completed), 'Não foi possível atualizar a etapa.'),
+    onDeleteStage: (id: string) => projectMutation(() => dataAccess.deleteProjectStage(id), 'Não foi possível excluir a etapa.'),
+    onSaveTask: (projectId: string, stageId: string, draft: ProjectTaskDraft, id?: string) => projectMutation(() => dataAccess.saveProjectTask(projectId, stageId, draft, id), 'Não foi possível salvar a tarefa.'),
+    onSetTaskState: (id: string, state: 'pending' | 'completed' | 'waived') => projectMutation(() => dataAccess.setProjectTaskState(id, state), 'Não foi possível atualizar a tarefa.'),
+    onDeleteTask: (id: string) => projectMutation(() => dataAccess.deleteProjectTask(id), 'Não foi possível excluir a tarefa.'),
   }
 
   async function saveItem(draft: RoutineDraft, id?: string) {
@@ -144,9 +149,9 @@ export default function App() {
           <div className="flex items-center gap-2">{!supabase && <span className="text-xs text-muted">Demonstração local · não sincroniza</span>}{supabase && session && <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button>}</div>
         </header>
 
-        <nav aria-label="Navegação principal" className="mt-6 flex rounded-full border border-[#e0e8e0] bg-white p-1"><button aria-current={section === 'routine' ? 'page' : undefined} onClick={() => setSection('routine')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'routine' ? 'bg-ink text-white' : 'text-muted'}`}>Minha Rotina</button><button aria-current={section === 'studies' ? 'page' : undefined} onClick={() => setSection('studies')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'studies' ? 'bg-ink text-white' : 'text-muted'}`}>Meus Estudos</button></nav>
+        <nav aria-label="Navegação principal" className="mt-6 flex rounded-full border border-[#e0e8e0] bg-white p-1"><button aria-current={section === 'routine' ? 'page' : undefined} onClick={() => setSection('routine')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'routine' ? 'bg-ink text-white' : 'text-muted'}`}>Minha Rotina</button><button aria-current={section === 'projects' ? 'page' : undefined} onClick={() => setSection('projects')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'projects' ? 'bg-ink text-white' : 'text-muted'}`}>Meus Projetos</button></nav>
 
-        {section === 'studies' ? <main className="mt-8"><Studies goals={studyGoals} loading={studyLoading} error={studyError} onSave={saveStudyGoal} onToggle={toggleStudyGoal} onDelete={deleteStudyGoal} /></main> : <main className="mt-9 grid gap-6 lg:grid-cols-[minmax(0,1fr)_270px] lg:items-start">
+        {section === 'projects' ? <main className="mt-8"><Projects tree={projectTree} loading={projectLoading} error={projectError} {...projectActions} /></main> : <main className="mt-9 grid gap-6 lg:grid-cols-[minmax(0,1fr)_270px] lg:items-start">
           <section className="min-w-0" aria-labelledby="day-heading">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div><p className="text-sm font-medium capitalize text-muted">{formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</p><h1 id="day-heading" className="mt-1 text-3xl font-semibold tracking-[-.04em] sm:text-4xl">{dateTitle}<span className="text-[#a2afa5]">.</span></h1></div>

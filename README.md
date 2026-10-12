@@ -40,3 +40,7 @@ npm run build
 ```
 
 Para publicar em Cloudflare Pages, use `npm run build`, publique `dist` e configure as duas variáveis do Supabase nas variáveis de ambiente do projeto.
+
+## Instalar no iPhone
+
+Abra o endereço HTTPS no Safari, toque em **Compartilhar** e escolha **Adicionar à Tela de Início**. A PWA atualiza os arquivos estáticos quando uma nova versão é publicada; feche e reabra o app se uma atualização ainda não aparecer. Dados e autenticação do Supabase não são armazenados pelo cache offline.

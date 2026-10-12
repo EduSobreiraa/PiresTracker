@@ -1,20 +1,25 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { categories, type Completion, type Database, type RoutineDraft, type RoutineItem, type StudyGoal, type StudyGoalDraft } from './types'
+import { categories, type Completion, type Database, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
 import { categoryIsTrackable, toggleCompletion } from './domain'
 import { initialRoutine } from './routine'
-import { isStudyGoal, studyPlan } from './studyPlan'
+import { isStudyGoal } from './studyPlan'
+import { awsProjectSeed, isProject, isProjectStage, isProjectTask, seedLocalAwsProject } from './projectPlan'
 
-type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[]; studyPlanVersion?: number }
+type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[]; projects: Project[]; projectStages: ProjectStage[]; projectTasks: ProjectTask[]; projectSeeded: boolean }
 const localKey = 'minha-rotina-v1'
 
 function readLocal(): LocalData {
   const raw = localStorage.getItem(localKey)
-  if (!raw) return { items: [], completions: [], studyGoals: [] }
+  if (!raw) return { items: [], completions: [], studyGoals: [], projects: [], projectStages: [], projectTasks: [], projectSeeded: false }
   const value: unknown = JSON.parse(raw)
   if (!value || typeof value !== 'object' || !('items' in value) || !Array.isArray(value.items) || !value.items.every(isRoutineItem) || !('completions' in value) || !Array.isArray(value.completions) || !value.completions.every(isCompletion)) {
     throw new Error('Os dados de demonstração estão inválidos. Limpe o armazenamento local para continuar.')
   }
-  return { items: value.items, completions: value.completions, studyGoals: 'studyGoals' in value && Array.isArray(value.studyGoals) && value.studyGoals.every(isStudyGoal) ? value.studyGoals : [] }
+  const savedGoals = 'studyGoals' in value && Array.isArray(value.studyGoals) && value.studyGoals.every(isStudyGoal) ? value.studyGoals : []
+  const projects = 'projects' in value && Array.isArray(value.projects) && value.projects.every(isProject) ? value.projects : []
+  const projectStages = 'projectStages' in value && Array.isArray(value.projectStages) && value.projectStages.every(isProjectStage) ? value.projectStages : []
+  const projectTasks = 'projectTasks' in value && Array.isArray(value.projectTasks) && value.projectTasks.every(isProjectTask) ? value.projectTasks : []
+  return { items: value.items, completions: value.completions, studyGoals: savedGoals.filter((goal) => goal.track === 'aws').map((goal) => ({ ...goal, parent_goal_id: goal.parent_goal_id ?? null, optional: goal.optional ?? false, waivable: goal.waivable ?? false, waived_at: goal.waived_at ?? null, archived_at: goal.archived_at ?? null })), projects, projectStages, projectTasks, projectSeeded: 'projectSeeded' in value && value.projectSeeded === true }
 }
 
 function isRoutineItem(value: unknown): value is RoutineItem {
@@ -129,73 +134,137 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       if (error) failure(error)
       return data
     },
-    async loadStudyGoals(): Promise<StudyGoal[]> {
-      if (!client) {
-        const data = readLocal()
-        const oldTitles = ['Concluir Exploring Artificial Intelligence Use Cases and Applications', 'Conhecer o ecossistema GPT / ChatGPT', 'Avançar no AWS AI Practitioner Learning Plan', 'Explorar funcionalidades e ferramentas do ChatGPT', 'Revisar domínio 1: Fundamentos de IA e ML', 'Estudar ChatGPT Work', 'Estudar domínio 2: Fundamentos de IA Generativa', 'Experimentar funcionalidades do ChatGPT', 'Estudar domínios 3 e 4', 'Comparar abordagens para tarefas empresariais', 'Estudar domínio 5 e revisar os cinco domínios', 'Consolidar experimentos e descobertas', 'Fazer simulado e avaliar preparação para o exame', 'Consolidar aprendizados de GPT / OpenAI']
-        if (!data.studyPlanVersion && data.studyGoals.length === oldTitles.length && data.studyGoals.every((goal) => oldTitles.includes(goal.title))) {
-          const oldGoals = data.studyGoals
-          data.studyGoals = [...studyPlan.map((goal) => ({ ...goal, id: crypto.randomUUID(), user_id: null, completed_at: oldGoals.find((old) => old.track === goal.track && old.week_start === goal.week_start)?.completed_at ?? null })), ...oldGoals.filter((goal) => !oldTitles.includes(goal.title))]
-        }
-        if (!data.studyGoals.length) data.studyGoals = studyPlan.map((goal) => ({ ...goal, id: crypto.randomUUID(), user_id: null, completed_at: null }))
-        if ((data.studyPlanVersion ?? 0) < 3) {
-          const parent = data.studyGoals.find((goal) => goal.track === 'aws' && goal.week_start === '2026-10-12' && goal.title === 'Concluir Exploring Artificial Intelligence Use Cases and Applications' && !goal.parent_goal_id)
-          const title = 'Resolver 10 questões adicionais de fixação'
-          if (parent && !data.studyGoals.some((goal) => goal.parent_goal_id === parent.id && goal.title === title)) {
-            data.studyGoals.push({ id: crypto.randomUUID(), user_id: null, track: parent.track, week_start: parent.week_start, title, description: null, completed_at: null, parent_goal_id: parent.id })
-          }
-        }
-        data.studyPlanVersion = 3
-        writeLocal(data)
-        return data.studyGoals
-      }
-      const ownerId = requireUserId(userId)
-      const { data, error } = await client.from('study_goals').select('*').eq('user_id', ownerId).order('week_start').order('track')
-      if (error) failure(error)
-      if (data.length) return data
-      const { error: seedError } = await client.from('study_goals').upsert(studyPlan.map((goal) => ({ ...goal, user_id: ownerId, completed_at: null })), { onConflict: 'user_id,week_start,track,title', ignoreDuplicates: true })
-      if (seedError) failure(seedError)
-      const { data: allGoals, error: loadError } = await client.from('study_goals').select('*').eq('user_id', ownerId).order('week_start').order('track')
-      if (loadError) failure(loadError)
-      return allGoals
-    },
-    async saveStudyGoal(draft: StudyGoalDraft, id?: string): Promise<StudyGoal> {
-      const values = { ...draft, title: draft.title.trim(), description: draft.description?.trim() || null }
+    async loadProjects(): Promise<ProjectTree> {
       if (!client) {
         const local = readLocal()
-        const old = id ? local.studyGoals.find((goal) => goal.id === id) : undefined
-        const saved = { ...values, parent_goal_id: values.parent_goal_id ?? null, id: id ?? crypto.randomUUID(), user_id: null, completed_at: old?.completed_at ?? null }
-        writeLocal({ ...local, studyGoals: [...local.studyGoals.filter((goal) => goal.id !== saved.id), saved] })
+        if (!local.projectSeeded) {
+          if (!local.projects.some((project) => project.seed_key === awsProjectSeed.key)) {
+            const seeded = seedLocalAwsProject(local.studyGoals)
+            local.projects.push(seeded.project)
+            local.projectStages.push(...seeded.stages)
+            local.projectTasks.push(...seeded.tasks)
+          }
+          local.studyGoals = local.studyGoals.filter((goal) => goal.track === 'aws')
+          local.projectSeeded = true
+          writeLocal(local)
+        }
+        return { projects: local.projects, stages: local.projectStages, tasks: local.projectTasks }
+      }
+      const ownerId = requireUserId(userId)
+      const { data: projects, error: projectsError } = await client.from('projects').select('*').eq('user_id', ownerId).order('created_at')
+      if (projectsError) failure(projectsError)
+      if (!projects.length) return { projects: [], stages: [], tasks: [] }
+      const projectIds = projects.map(({ id }) => id)
+      const { data: stages, error: stagesError } = await client.from('project_stages').select('*').eq('user_id', ownerId).in('project_id', projectIds).order('position')
+      if (stagesError) failure(stagesError)
+      const stageIds = stages.map(({ id }) => id)
+      const { data: tasks, error: tasksError } = stageIds.length
+        ? await client.from('project_tasks').select('*').eq('user_id', ownerId).in('stage_id', stageIds).order('position')
+        : { data: [], error: null }
+      if (tasksError) failure(tasksError)
+      return { projects, stages, tasks }
+    },
+    async saveProject(draft: ProjectDraft, id?: string): Promise<Project> {
+      const values = { name: draft.name.trim(), description: draft.description?.trim() || null }
+      if (!client) {
+        const local = readLocal()
+        const old = id ? local.projects.find((project) => project.id === id) : undefined
+        const saved: Project = { ...values, id: id ?? crypto.randomUUID(), user_id: null, seed_key: old?.seed_key ?? null, created_at: old?.created_at ?? new Date().toISOString(), updated_at: new Date().toISOString() }
+        writeLocal({ ...local, projects: [...local.projects.filter((project) => project.id !== saved.id), saved] })
         return saved
       }
       const ownerId = requireUserId(userId)
-      const query = id
-        ? client.from('study_goals').update(values).eq('id', id).eq('user_id', ownerId)
-        : client.from('study_goals').insert({ ...values, user_id: ownerId })
+      const query = id ? client.from('projects').update(values).eq('id', id).eq('user_id', ownerId) : client.from('projects').insert({ ...values, seed_key: null, user_id: ownerId })
       const { data, error } = await query.select().single()
       if (error) failure(error)
       return data
     },
-    async completeStudyGoal(id: string, completed: boolean): Promise<StudyGoal> {
+    async deleteProject(id: string): Promise<void> {
       if (!client) {
         const local = readLocal()
-        const goal = local.studyGoals.find((entry) => entry.id === id)
-        if (!goal) throw new Error('Objetivo não encontrado.')
-        const saved = { ...goal, completed_at: completed ? new Date().toISOString() : null }
-        writeLocal({ ...local, studyGoals: local.studyGoals.map((entry) => entry.id === id ? saved : entry) })
+        const stageIds = new Set(local.projectStages.filter((stage) => stage.project_id === id).map(({ id: stageId }) => stageId))
+        writeLocal({ ...local, projects: local.projects.filter((project) => project.id !== id), projectStages: local.projectStages.filter((stage) => stage.project_id !== id), projectTasks: local.projectTasks.filter((task) => task.project_id !== id && !stageIds.has(task.stage_id)) })
+        return
+      }
+      const { error } = await client.from('projects').delete().eq('id', id).eq('user_id', requireUserId(userId))
+      if (error) failure(error)
+    },
+    async saveProjectStage(projectId: string, draft: ProjectStageDraft, id?: string): Promise<ProjectStage> {
+      const values = { title: draft.title.trim(), description: draft.description?.trim() || null, position: draft.position }
+      if (!client) {
+        const local = readLocal()
+        const old = id ? local.projectStages.find((stage) => stage.id === id) : undefined
+        const saved: ProjectStage = { ...values, id: id ?? crypto.randomUUID(), project_id: projectId, user_id: null, seed_key: old?.seed_key ?? null, completed_at: old?.completed_at ?? null, created_at: old?.created_at ?? new Date().toISOString(), updated_at: new Date().toISOString() }
+        writeLocal({ ...local, projectStages: [...local.projectStages.filter((stage) => stage.id !== saved.id), saved] })
         return saved
       }
-      const { data, error } = await client.from('study_goals').update({ completed_at: completed ? new Date().toISOString() : null }).eq('id', id).eq('user_id', requireUserId(userId)).select().single()
+      const ownerId = requireUserId(userId)
+      const query = id ? client.from('project_stages').update(values).eq('id', id).eq('project_id', projectId).eq('user_id', ownerId) : client.from('project_stages').insert({ ...values, project_id: projectId, user_id: ownerId, seed_key: null })
+      const { data, error } = await query.select().single()
       if (error) failure(error)
       return data
     },
-    async deleteStudyGoal(id: string): Promise<void> {
+    async completeProjectStage(id: string, completed: boolean): Promise<ProjectStage> {
+      const values = { completed_at: completed ? new Date().toISOString() : null }
       if (!client) {
         const local = readLocal()
-        writeLocal({ ...local, studyGoals: local.studyGoals.filter((goal) => goal.id !== id && goal.parent_goal_id !== id) })
+        const saved = local.projectStages.find((stage) => stage.id === id)
+        if (!saved) throw new Error('Etapa não encontrada.')
+        const updated = { ...saved, ...values, updated_at: new Date().toISOString() }
+        writeLocal({ ...local, projectStages: local.projectStages.map((stage) => stage.id === id ? updated : stage) })
+        return updated
+      }
+      const { data, error } = await client.from('project_stages').update(values).eq('id', id).eq('user_id', requireUserId(userId)).select().single()
+      if (error) failure(error)
+      return data
+    },
+    async deleteProjectStage(id: string): Promise<void> {
+      if (!client) {
+        const local = readLocal()
+        writeLocal({ ...local, projectStages: local.projectStages.filter((stage) => stage.id !== id), projectTasks: local.projectTasks.filter((task) => task.stage_id !== id) })
         return
       }
-      const { error } = await client.from('study_goals').delete().eq('id', id).eq('user_id', requireUserId(userId))
+      const { error } = await client.from('project_stages').delete().eq('id', id).eq('user_id', requireUserId(userId))
+      if (error) failure(error)
+    },
+    async saveProjectTask(projectId: string, stageId: string, draft: ProjectTaskDraft, id?: string): Promise<ProjectTask> {
+      const values = { title: draft.title.trim(), description: draft.description?.trim() || null, planned_week: draft.planned_week || null, position: draft.position, optional: draft.optional, waivable: draft.waivable }
+      if (!client) {
+        const local = readLocal()
+        const old = id ? local.projectTasks.find((task) => task.id === id) : undefined
+        const saved: ProjectTask = { ...values, id: id ?? crypto.randomUUID(), project_id: projectId, stage_id: stageId, user_id: null, seed_key: old?.seed_key ?? null, completed_at: old?.completed_at ?? null, waived_at: old?.waived_at ?? null, created_at: old?.created_at ?? new Date().toISOString(), updated_at: new Date().toISOString() }
+        writeLocal({ ...local, projectTasks: [...local.projectTasks.filter((task) => task.id !== saved.id), saved] })
+        return saved
+      }
+      const ownerId = requireUserId(userId)
+      const query = id ? client.from('project_tasks').update(values).eq('id', id).eq('project_id', projectId).eq('stage_id', stageId).eq('user_id', ownerId) : client.from('project_tasks').insert({ ...values, project_id: projectId, stage_id: stageId, user_id: ownerId, seed_key: null })
+      const { data, error } = await query.select().single()
+      if (error) failure(error)
+      return data
+    },
+    async setProjectTaskState(id: string, state: 'pending' | 'completed' | 'waived'): Promise<ProjectTask> {
+      if (!client) {
+        const local = readLocal()
+        const task = local.projectTasks.find((entry) => entry.id === id)
+        if (!task || (state === 'waived' && !task.waivable)) throw new Error('Esta tarefa não pode ser dispensada.')
+        const updated = { ...task, completed_at: state === 'completed' ? new Date().toISOString() : null, waived_at: state === 'waived' ? new Date().toISOString() : null, updated_at: new Date().toISOString() }
+        writeLocal({ ...local, projectTasks: local.projectTasks.map((entry) => entry.id === id ? updated : entry) })
+        return updated
+      }
+      const ownerId = requireUserId(userId)
+      let query = client.from('project_tasks').update({ completed_at: state === 'completed' ? new Date().toISOString() : null, waived_at: state === 'waived' ? new Date().toISOString() : null }).eq('id', id).eq('user_id', ownerId)
+      if (state === 'waived') query = query.eq('waivable', true)
+      const { data, error } = await query.select().single()
+      if (error) failure(error)
+      return data
+    },
+    async deleteProjectTask(id: string): Promise<void> {
+      if (!client) {
+        const local = readLocal()
+        writeLocal({ ...local, projectTasks: local.projectTasks.filter((task) => task.id !== id) })
+        return
+      }
+      const { error } = await client.from('project_tasks').delete().eq('id', id).eq('user_id', requireUserId(userId))
       if (error) failure(error)
     },
   }

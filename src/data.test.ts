@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDataAccess } from './data'
 import { dayItems, weeklyProgress } from './domain'
+import { projectProgress } from './projectPlan'
 
 const values = new Map<string, string>()
 
@@ -77,49 +78,52 @@ describe('local demonstration storage', () => {
     expect((await data.loadCompletions('2026-10-19')).map(({ completed_at }) => completed_at !== null)).toEqual([false])
   })
 
-  it('keeps the professional plan separate from routine sessions and persists goal edits', async () => {
+  it('creates only the AWS project in local demo and migrates AWS task history once', async () => {
+    const completedAt = '2026-10-12T17:00:00.000Z'
+    values.set('minha-rotina-v1', JSON.stringify({ items: [], completions: [], studyGoals: [
+      { id: 'aws-task', user_id: null, track: 'aws', week_start: '2026-10-12', title: 'Exam Prep Plan Overview', description: '15 min', completed_at: completedAt, parent_goal_id: 'aws-week', optional: false, waivable: false, waived_at: null, archived_at: null },
+      { id: 'gpt-old', user_id: null, track: 'gpt', week_start: '2026-10-12', title: 'Old GPT goal', description: null, completed_at: completedAt, parent_goal_id: null, optional: false, waivable: false, waived_at: null, archived_at: null },
+    ] }))
     const data = createDataAccess(null, null)
-    const goals = await data.loadStudyGoals()
-    expect(goals).toHaveLength(43)
-    expect(goals.filter(({ track, parent_goal_id }) => track === 'aws' && !parent_goal_id)).toHaveLength(21)
-    expect(goals.filter(({ track, parent_goal_id }) => track === 'gpt' && !parent_goal_id)).toHaveLength(21)
-    expect(goals.filter(({ week_start }) => week_start === '2026-10-12')).toHaveLength(7)
-    expect(goals.every(({ completed_at }) => completed_at === null)).toBe(true)
-    const courseGoal = goals.find(({ title }) => title === 'Concluir Exploring Artificial Intelligence Use Cases and Applications')!
-    expect(goals.find(({ parent_goal_id }) => parent_goal_id === courseGoal.id)).toMatchObject({ title: 'Resolver 10 questões adicionais de fixação', completed_at: null })
-    const first = goals[0]
-    const completed = await data.completeStudyGoal(first.id, true)
-    expect(completed.completed_at).not.toBeNull()
-    const custom = await data.saveStudyGoal({ track: 'gpt', week_start: '2026-10-12', title: 'Objetivo pessoal', description: '' })
-    expect((await createDataAccess(null, null).loadStudyGoals()).find(({ id }) => id === custom.id)?.title).toBe('Objetivo pessoal')
-    await data.deleteStudyGoal(custom.id)
-    expect((await data.loadStudyGoals()).some(({ id }) => id === custom.id)).toBe(false)
-    expect((await data.loadCompletions('2026-10-12'))).toHaveLength(0)
+    const tree = await data.loadProjects()
+    const project = tree.projects[0]
+    expect(tree.projects).toHaveLength(1)
+    expect(project.name).toBe('AWS Certified AI Practitioner (AIF-C01)')
+    expect(tree.stages.map(({ title }) => title)).toEqual(['Conhecer o exame', 'Atualizar conhecimentos e habilidades AWS', 'Revisar e praticar os cinco domínios', 'Avaliar a preparação para a certificação'])
+    expect(tree.tasks).toHaveLength(35)
+    expect(tree.tasks.find(({ title }) => title === 'Exam Prep Plan Overview')).toMatchObject({ id: 'aws-task', completed_at: completedAt })
+    expect(tree.tasks.filter(({ waivable }) => waivable)).toHaveLength(6)
+    expect(tree.tasks.find(({ title }) => title === 'AWS Escape Room')?.optional).toBe(true)
+    expect((JSON.parse(values.get('minha-rotina-v1')!).studyGoals as Array<{ track: string }>).some(({ track }) => track === 'gpt')).toBe(false)
+    expect(await data.loadProjects()).toEqual(tree)
+    expect(projectProgress(tree.stages, tree.tasks)).toMatchObject({ completedStages: 0, totalStages: 4, completedTasks: 3, totalTasks: 34, stagePercent: 0 })
   })
 
-  it('keeps task completion independent and removes child tasks with their parent', async () => {
+  it('keeps project, stage, task and waiver states independent through CRUD', async () => {
     const data = createDataAccess(null, null)
-    const parent = await data.saveStudyGoal({ track: 'aws', week_start: '2026-10-12', title: 'Avançar na preparação', description: null })
-    const task = await data.saveStudyGoal({ track: 'aws', week_start: '2026-10-12', title: 'Resolver 10 questões adicionais', description: null, parent_goal_id: parent.id })
+    let tree = await data.loadProjects()
+    const project = await data.saveProject({ name: 'Projeto manual', description: 'Descrição' })
+    const stage = await data.saveProjectStage(project.id, { title: 'Etapa manual', description: null, position: 0 })
+    const task = await data.saveProjectTask(project.id, stage.id, { title: 'Tarefa manual', description: null, planned_week: '2026-10-12', optional: false, waivable: true, position: 0 })
 
-    const completedTask = await data.completeStudyGoal(task.id, true)
-    expect(completedTask.completed_at).not.toBeNull()
-    expect((await data.loadStudyGoals()).find(({ id }) => id === parent.id)?.completed_at).toBeNull()
+    await data.setProjectTaskState(task.id, 'completed')
+    tree = await data.loadProjects()
+    expect(tree.stages.find(({ id }) => id === stage.id)?.completed_at).toBeNull()
+    expect(tree.tasks.find(({ id }) => id === task.id)?.completed_at).not.toBeNull()
+    await data.completeProjectStage(stage.id, true)
+    await data.setProjectTaskState(task.id, 'pending')
+    tree = await data.loadProjects()
+    expect(tree.stages.find(({ id }) => id === stage.id)?.completed_at).not.toBeNull()
+    expect(tree.tasks.find(({ id }) => id === task.id)?.completed_at).toBeNull()
+    await data.setProjectTaskState(task.id, 'waived')
+    expect((await data.loadProjects()).tasks.find(({ id }) => id === task.id)?.waived_at).not.toBeNull()
+    expect(projectProgress([], [])).toMatchObject({ totalStages: 0, totalTasks: 0, stagePercent: 0, taskPercent: 0 })
 
-    await data.deleteStudyGoal(parent.id)
-    expect((await data.loadStudyGoals()).some(({ id }) => id === task.id || id === parent.id)).toBe(false)
-  })
-
-  it('splits the old weekly bundles and carries their completion state forward', async () => {
-    const titles = ['Concluir Exploring Artificial Intelligence Use Cases and Applications', 'Conhecer o ecossistema GPT / ChatGPT', 'Avançar no AWS AI Practitioner Learning Plan', 'Explorar funcionalidades e ferramentas do ChatGPT', 'Revisar domínio 1: Fundamentos de IA e ML', 'Estudar ChatGPT Work', 'Estudar domínio 2: Fundamentos de IA Generativa', 'Experimentar funcionalidades do ChatGPT', 'Estudar domínios 3 e 4', 'Comparar abordagens para tarefas empresariais', 'Estudar domínio 5 e revisar os cinco domínios', 'Consolidar experimentos e descobertas', 'Fazer simulado e avaliar preparação para o exame', 'Consolidar aprendizados de GPT / OpenAI']
-    const oldGoals = titles.map((title, index) => ({ id: `legacy-${index}`, user_id: null, track: index % 2 === 0 ? 'aws' as const : 'gpt' as const, week_start: ['2026-10-12', '2026-10-19', '2026-10-26', '2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23'][Math.floor(index / 2)], title, description: null, completed_at: index === 0 ? '2026-10-13T10:00:00.000Z' : null }))
-    values.set('minha-rotina-v1', JSON.stringify({ items: [], completions: [], studyGoals: oldGoals }))
-
-    const goals = await createDataAccess(null, null).loadStudyGoals()
-    expect(goals).toHaveLength(43)
-    expect(goals.filter(({ week_start, track, parent_goal_id }) => week_start === '2026-10-12' && track === 'aws' && !parent_goal_id).every(({ completed_at }) => completed_at === oldGoals[0].completed_at)).toBe(true)
-    expect(goals.filter(({ week_start, track, parent_goal_id }) => week_start === '2026-10-12' && track === 'gpt' && !parent_goal_id).every(({ completed_at }) => completed_at === null)).toBe(true)
-    const parent = goals.find(({ title, parent_goal_id }) => title === oldGoals[0].title && !parent_goal_id)!
-    expect(goals.find(({ parent_goal_id }) => parent_goal_id === parent.id)?.completed_at).toBeNull()
+    await data.deleteProjectTask(task.id)
+    await data.deleteProjectStage(stage.id)
+    await data.saveProject({ name: 'Projeto alterado', description: null }, project.id)
+    expect((await data.loadProjects()).projects.find(({ id }) => id === project.id)?.name).toBe('Projeto alterado')
+    await data.deleteProject(project.id)
+    expect((await data.loadProjects()).projects.some(({ id }) => id === project.id)).toBe(false)
   })
 })

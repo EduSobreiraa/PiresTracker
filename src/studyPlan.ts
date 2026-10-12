@@ -1,58 +1,47 @@
-import type { StudyGoalDraft } from './types'
+import type { StudyGoal } from './types'
 
-export const studyPlan: StudyGoalDraft[] = [
-  { track: 'aws', week_start: '2026-10-12', title: 'Concluir Exploring Artificial Intelligence Use Cases and Applications', description: null },
-  { track: 'aws', week_start: '2026-10-12', title: 'Revisar os fundamentos de IA e Machine Learning', description: null },
-  { track: 'aws', week_start: '2026-10-12', title: 'Resolver questões de fixação dos conteúdos estudados', description: null },
-  { track: 'gpt', week_start: '2026-10-12', title: 'Conhecer o ecossistema GPT / ChatGPT', description: null },
-  { track: 'gpt', week_start: '2026-10-12', title: 'Identificar as principais funcionalidades disponíveis', description: null },
-  { track: 'gpt', week_start: '2026-10-12', title: 'Registrar exemplos de aplicações empresariais', description: null },
-  { track: 'aws', week_start: '2026-10-19', title: 'Avançar nos conteúdos fundamentais do AWS AI Practitioner Learning Plan', description: null },
-  { track: 'aws', week_start: '2026-10-19', title: 'Revisar os principais conceitos de IA generativa', description: null },
-  { track: 'aws', week_start: '2026-10-19', title: 'Distinguir aprendizado, inferência e modelos fundacionais', description: null },
-  { track: 'gpt', week_start: '2026-10-19', title: 'Estudar funcionalidades e ferramentas do ChatGPT', description: null },
-  { track: 'gpt', week_start: '2026-10-19', title: 'Explorar diferentes modalidades de interação com modelos', description: null },
-  { track: 'gpt', week_start: '2026-10-19', title: 'Identificar limitações e boas práticas de utilização', description: null },
-  { track: 'aws', week_start: '2026-10-26', title: 'Revisar conceitos essenciais do domínio 1: Fundamentos de IA e ML', description: null },
-  { track: 'aws', week_start: '2026-10-26', title: 'Resolver questões relacionadas ao domínio 1', description: null },
-  { track: 'aws', week_start: '2026-10-26', title: 'Iniciar revisão direcionada ao domínio 1 do exame', description: null },
-  { track: 'gpt', week_start: '2026-10-26', title: 'Estudar ChatGPT Work e seus principais casos de uso', description: null },
-  { track: 'gpt', week_start: '2026-10-26', title: 'Explorar possibilidades de pesquisa e execução de tarefas', description: null },
-  { track: 'gpt', week_start: '2026-10-26', title: 'Identificar aplicações relevantes para ambientes corporativos', description: null },
-  { track: 'aws', week_start: '2026-11-02', title: 'Estudar o domínio 2: Fundamentos de IA Generativa', description: null },
-  { track: 'aws', week_start: '2026-11-02', title: 'Revisar conceitos de foundation models', description: null },
-  { track: 'aws', week_start: '2026-11-02', title: 'Resolver exercícios de fixação do domínio 2', description: null },
-  { track: 'gpt', week_start: '2026-11-02', title: 'Realizar experimentos com as funcionalidades estudadas', description: null },
-  { track: 'gpt', week_start: '2026-11-02', title: 'Comparar abordagens diferentes para uma mesma tarefa', description: null },
-  { track: 'gpt', week_start: '2026-11-02', title: 'Registrar resultados e limitações dos experimentos', description: null },
-  { track: 'aws', week_start: '2026-11-09', title: 'Estudar o domínio 3: Aplicações de Foundation Models', description: null },
-  { track: 'aws', week_start: '2026-11-09', title: 'Estudar o domínio 4: Diretrizes para IA Responsável', description: null },
-  { track: 'aws', week_start: '2026-11-09', title: 'Resolver questões dos domínios 3 e 4', description: null },
-  { track: 'gpt', week_start: '2026-11-09', title: 'Comparar abordagens para análise documental', description: null },
-  { track: 'gpt', week_start: '2026-11-09', title: 'Comparar abordagens para pesquisa e produção de conteúdo', description: null },
-  { track: 'gpt', week_start: '2026-11-09', title: 'Registrar vantagens, limitações e aplicações empresariais', description: null },
-  { track: 'aws', week_start: '2026-11-16', title: 'Estudar o domínio 5: Segurança, Conformidade e Governança', description: null },
-  { track: 'aws', week_start: '2026-11-16', title: 'Revisar os conteúdos dos cinco domínios', description: null },
-  { track: 'aws', week_start: '2026-11-16', title: 'Identificar os conteúdos de maior dificuldade', description: null },
-  { track: 'gpt', week_start: '2026-11-16', title: 'Consolidar os experimentos realizados', description: null },
-  { track: 'gpt', week_start: '2026-11-16', title: 'Documentar descobertas relevantes', description: null },
-  { track: 'gpt', week_start: '2026-11-16', title: 'Relacionar funcionalidades a problemas reais de negócio', description: null },
-  { track: 'aws', week_start: '2026-11-23', title: 'Realizar um pretest ou simulado', description: null },
-  { track: 'aws', week_start: '2026-11-23', title: 'Revisar conteúdos com maior índice de erro', description: null },
-  { track: 'aws', week_start: '2026-11-23', title: 'Avaliar a preparação para agendar ou realizar o exame', description: null },
-  { track: 'gpt', week_start: '2026-11-23', title: 'Revisar as funcionalidades estudadas', description: null },
-  { track: 'gpt', week_start: '2026-11-23', title: 'Consolidar os principais casos de uso identificados', description: null },
-  { track: 'gpt', week_start: '2026-11-23', title: 'Preparar resumo dos aprendizados e próximos tópicos', description: null },
+const weeks = ['2026-10-12', '2026-10-19', '2026-10-26', '2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23']
+type PlanTask = { week_start: string; title: string; description: string | null; optional?: boolean; waivable?: boolean }
+const task = (week: number, title: string, description: string | null = null, flags: Pick<PlanTask, 'optional' | 'waivable'> = {}): PlanTask => ({ week_start: weeks[week], title, description, ...flags })
+
+export const awsStudyTasks: PlanTask[] = [
+  task(0, 'Exam Prep Plan Overview', '15 min · Conclusão informada pelo usuário.'),
+  task(0, 'Exam Prep Overview', '5 min.'),
+  task(0, 'Official Practice Question Set — 20 questões', '30 min · Questões oficiais para diagnóstico inicial.'),
+  task(0, 'Fundamentos de machine learning e inteligência artificial', '1 h · Curso concluído; conclusão preservada.'),
+  task(0, 'Descrição dos casos de uso e aplicações da inteligência artificial', '1 h · Curso concluído; conclusão preservada.'),
+  task(0, 'Registrar lacunas identificadas nas questões iniciais'),
+  task(1, 'Práticas responsáveis de inteligência artificial', '1 h · Dispensável por domínio prévio.', { waivable: true }),
+  task(1, 'Desenvolvimento de soluções de machine learning', '1 h · Dispensável por domínio prévio.', { waivable: true }),
+  task(1, 'Desenvolvimento de soluções de inteligência artificial generativa', '1 h · Dispensável por domínio prévio.', { waivable: true }),
+  task(1, 'Fundamentos da engenharia de prompts', '1 h · Dispensável por domínio prévio.', { waivable: true }),
+  task(1, 'Otimização de modelos de base', '1 h · Dispensável por domínio prévio.', { waivable: true }),
+  task(1, 'Segurança, conformidade e governança para soluções de IA', '1 h · Dispensável por domínio prévio.', { waivable: true }),
+  task(2, 'Domain 1 Review — Fundamentos de IA e ML', '1 h 30 min.'),
+  task(2, 'Domain 1 Practice', '55 min.'),
+  task(2, 'Domain 1 Practice: AWS SimuLearn', '1 h.'),
+  task(2, 'Domain 2 Review — Fundamentos de IA generativa', '1 h 30 min.'),
+  task(2, 'Domain 2 Practice', '45 min.'),
+  task(3, 'Domain 3 Review — Aplicações de modelos de base', '1 h 30 min.'),
+  task(3, 'Domain 3 Practice', '45 min.'),
+  task(3, 'Domain 4 Review — Diretrizes de IA responsável', '1 h 30 min.'),
+  task(3, 'Domain 4 Practice', '30 min.'),
+  task(4, 'Domain 5 Review — Segurança, conformidade e governança', '1 h 30 min.'),
+  task(4, 'Domain 5 Practice', '30 min.'),
+  task(4, 'Domain 5 Practice: AWS SimuLearn', '1 h.'),
+  task(4, 'Revisar questões incorretas dos domínios anteriores'),
+  task(4, 'AWS Escape Room', 'Opcional · estimativa oficial de 6 h.', { optional: true }),
+  task(5, 'Official Pretest — 65 questões', '1 h 30 min.'),
+  task(5, 'Analisar o desempenho geral e por domínio'),
+  task(5, 'Revisar os domínios com maior quantidade de erros'),
+  task(5, 'Refazer exercícios relevantes quando necessário'),
+  task(6, 'Official Practice Exam — 65 questões', '1 h 30 min.'),
+  task(6, 'Analisar resultado e justificativas'),
+  task(6, 'Revisar conteúdos com desempenho insuficiente'),
+  task(6, 'Exam Prep Summary', '5 min.'),
+  task(6, 'Avaliar se há preparação suficiente para agendar ou realizar o exame'),
 ]
 
-export const studyPlanWeeks = studyPlan.filter((goal, index, goals) => goals.findIndex(({ week_start }) => week_start === goal.week_start) === index).map(({ week_start }) => week_start)
-
-export function initialStudyWeek(today: string): string {
-  if (today < studyPlanWeeks[0]) return studyPlanWeeks[0]
-  if (today >= studyPlanWeeks[studyPlanWeeks.length - 1]) return studyPlanWeeks[studyPlanWeeks.length - 1]
-  return studyPlanWeeks.reduce((closest, week) => week <= today ? week : closest, studyPlanWeeks[0])
-}
-
-export function isStudyGoal(value: unknown): value is import('./types').StudyGoal {
-  return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string' && 'user_id' in value && (typeof value.user_id === 'string' || value.user_id === null) && 'track' in value && (value.track === 'aws' || value.track === 'gpt') && 'title' in value && typeof value.title === 'string' && 'description' in value && (typeof value.description === 'string' || value.description === null) && 'week_start' in value && typeof value.week_start === 'string' && 'completed_at' in value && (typeof value.completed_at === 'string' || value.completed_at === null) && (!('parent_goal_id' in value) || typeof value.parent_goal_id === 'string' || value.parent_goal_id === null)
+export function isStudyGoal(value: unknown): value is StudyGoal {
+  return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string' && 'user_id' in value && (typeof value.user_id === 'string' || value.user_id === null) && 'track' in value && (value.track === 'aws' || value.track === 'gpt') && 'title' in value && typeof value.title === 'string' && 'description' in value && (typeof value.description === 'string' || value.description === null) && 'week_start' in value && typeof value.week_start === 'string' && 'completed_at' in value && (typeof value.completed_at === 'string' || value.completed_at === null) && (!('parent_goal_id' in value) || typeof value.parent_goal_id === 'string' || value.parent_goal_id === null) && (!('waived_at' in value) || typeof value.waived_at === 'string' || value.waived_at === null) && (!('archived_at' in value) || typeof value.archived_at === 'string' || value.archived_at === null)
 }
