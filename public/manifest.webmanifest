@@ -1,0 +1,11 @@
+{
+  "name": "Minha Rotina",
+  "short_name": "Rotina",
+  "description": "Sua rotina semanal em um só lugar.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f8f5",
+  "theme_color": "#17352d",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
