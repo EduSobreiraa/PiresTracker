@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import ActivityDialog from './ActivityDialog'
 import AuthScreen, { Mark } from './AuthScreen'
+import Studies from './Studies'
 import { addDays, bahiaToday, currentOrNextActivity, dayItems, formatDate, weeklyProgress, weekdayShort, weekStart } from './domain'
 import { createDataAccess } from './data'
 import { configurationError, supabase } from './supabase'
-import type { Completion, RoutineDraft, RoutineItem } from './types'
+import type { Completion, RoutineDraft, RoutineItem, StudyGoal, StudyGoalDraft } from './types'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -18,6 +19,10 @@ export default function App() {
   const [error, setError] = useState('')
   const [dialogItem, setDialogItem] = useState<RoutineItem | null | undefined>(undefined)
   const [clockNow, setClockNow] = useState(() => new Date())
+  const [section, setSection] = useState<'routine' | 'studies'>('routine')
+  const [studyGoals, setStudyGoals] = useState<StudyGoal[]>([])
+  const [studyLoading, setStudyLoading] = useState(false)
+  const [studyError, setStudyError] = useState('')
 
   useEffect(() => {
     if (!supabase) return
@@ -63,6 +68,30 @@ export default function App() {
     return () => { active = false }
   }, [dataAccess, startOfWeek])
 
+  useEffect(() => {
+    if (section !== 'studies') return
+    let active = true
+    setStudyLoading(true)
+    setStudyError('')
+    dataAccess.loadStudyGoals().then((goals) => { if (active) setStudyGoals(goals) }).catch((cause: unknown) => { if (active) setStudyError(cause instanceof Error ? cause.message : 'Não foi possível carregar os objetivos.') }).finally(() => { if (active) setStudyLoading(false) })
+    return () => { active = false }
+  }, [dataAccess, section])
+
+  async function saveStudyGoal(draft: StudyGoalDraft, id?: string) {
+    try { const saved = await dataAccess.saveStudyGoal(draft, id); setStudyGoals((current) => [...current.filter((goal) => goal.id !== saved.id), saved].sort((a, b) => a.week_start.localeCompare(b.week_start))); setStudyError('') }
+    catch (cause) { setStudyError(cause instanceof Error ? cause.message : 'Não foi possível salvar o objetivo.'); throw cause }
+  }
+
+  async function toggleStudyGoal(goal: StudyGoal) {
+    try { const saved = await dataAccess.completeStudyGoal(goal.id, !goal.completed_at); setStudyGoals((current) => current.map((entry) => entry.id === saved.id ? saved : entry)); setStudyError('') }
+    catch (cause) { setStudyError(cause instanceof Error ? cause.message : 'Não foi possível atualizar o objetivo.') }
+  }
+
+  async function deleteStudyGoal(goal: StudyGoal) {
+    try { await dataAccess.deleteStudyGoal(goal.id); setStudyGoals((current) => current.filter((entry) => entry.id !== goal.id)); setStudyError('') }
+    catch (cause) { setStudyError(cause instanceof Error ? cause.message : 'Não foi possível excluir o objetivo.') }
+  }
+
   async function saveItem(draft: RoutineDraft, id?: string) {
     const saved = await dataAccess.saveItem(draft, id)
     setItems((current) => [...current.filter((item) => item.id !== saved.id), saved].sort((a, b) => a.starts_at.localeCompare(b.starts_at)))
@@ -103,10 +132,12 @@ export default function App() {
       <div className="mx-auto max-w-6xl px-4 pb-12 pt-5 sm:px-8 sm:pt-8">
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3"><Mark /><div><p className="text-lg font-semibold tracking-tight">Minha Rotina</p><p className="text-xs text-muted">Uma semana de cada vez</p></div></div>
-          {supabase && session && <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button>}
+          <div className="flex items-center gap-2">{supabase && session && <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button>}</div>
         </header>
 
-        <main className="mt-9 grid gap-6 lg:grid-cols-[minmax(0,1fr)_270px] lg:items-start">
+        <nav aria-label="Navegação principal" className="mt-6 flex rounded-full border border-[#e0e8e0] bg-white p-1"><button aria-current={section === 'routine' ? 'page' : undefined} onClick={() => setSection('routine')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'routine' ? 'bg-ink text-white' : 'text-muted'}`}>Minha Rotina</button><button aria-current={section === 'studies' ? 'page' : undefined} onClick={() => setSection('studies')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'studies' ? 'bg-ink text-white' : 'text-muted'}`}>Meus Estudos</button></nav>
+
+        {section === 'studies' ? <main className="mt-8"><Studies goals={studyGoals} loading={studyLoading} error={studyError} onSave={saveStudyGoal} onToggle={toggleStudyGoal} onDelete={deleteStudyGoal} /></main> : <main className="mt-9 grid gap-6 lg:grid-cols-[minmax(0,1fr)_270px] lg:items-start">
           <section className="min-w-0" aria-labelledby="day-heading">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div><p className="text-sm font-medium capitalize text-muted">{formatDate(selectedDate, { day: 'numeric', month: 'long', year: 'numeric' })}</p><h1 id="day-heading" className="mt-1 text-3xl font-semibold tracking-[-.04em] sm:text-4xl">{dateTitle}<span className="text-[#a2afa5]">.</span></h1></div>
@@ -124,7 +155,7 @@ export default function App() {
           </section>
 
           <aside className="lg:sticky lg:top-6" aria-labelledby="week-summary"><section className="rounded-[1.6rem] bg-ink p-5 text-white sm:p-6"><div className="flex items-center justify-between"><h2 id="week-summary" className="text-base font-semibold">Seu ritmo na semana</h2><span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-lime" aria-hidden="true">↗</span></div><p className="mt-1 text-xs text-white/60">Só atividades acompanháveis contam aqui.</p><div className="mt-6 space-y-5"><Progress label="Academia" value={progress.gymDone} planned={progress.gymPlanned} unit="treinos" /><Progress label="Estudos" value={progress.studyDone} planned={progress.studyPlanned} unit="sessões" /></div></section><p className="mt-4 px-1 text-xs leading-5 text-muted">Os compromissos ficam no seu roteiro. Estudos e academia têm checklist por data.</p></aside>
-        </main>
+        </main>}
       </div>
       {dialogItem !== undefined && <ActivityDialog item={dialogItem} weekday={dates.indexOf(selectedDate) < 0 ? 0 : new Date(`${selectedDate}T00:00:00Z`).getUTCDay()} onClose={() => setDialogItem(undefined)} onSave={saveItem} onArchive={archiveItem} />}
     </div>

@@ -29,7 +29,7 @@ export function formatDate(date: string, options: Intl.DateTimeFormatOptions): s
 }
 
 export function dayItems(items: RoutineItem[], date: string): RoutineItem[] {
-  return items.filter((item) => item.active && item.weekday === weekdayOf(date)).sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+  return items.filter((item) => item.active && item.weekday === weekdayOf(date) && !/deslocamento|buscar namorada|deixar namorada|buscar colega/i.test(item.title)).sort((a, b) => a.starts_at.localeCompare(b.starts_at))
 }
 
 export function currentOrNextActivity(items: RoutineItem[], date: string, now = new Date()) {

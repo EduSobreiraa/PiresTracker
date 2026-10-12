@@ -29,7 +29,7 @@ describe('local demonstration storage', () => {
     ])
     expect(weeklyProgress(items, [], '2026-10-12')).toEqual({ gymDone: 0, gymPlanned: 3, studyDone: 0, studyPlanned: 11 })
     expect(await createDataAccess(null, null).loadItems()).toHaveLength(items.length)
-    expect(dayItems(items, '2026-10-13').find(({ title }) => title.startsWith('Deslocamento'))?.is_trackable).toBe(false)
+    expect(items.some(({ title }) => /deslocamento|buscar namorada|deixar namorada|buscar colega/i.test(title))).toBe(false)
   })
 
   it('edits recurring fields and removes an item without erasing its dated history', async () => {
@@ -75,5 +75,20 @@ describe('local demonstration storage', () => {
 
     expect((await data.loadCompletions('2026-10-12')).map(({ completed_at }) => completed_at !== null)).toEqual([true])
     expect((await data.loadCompletions('2026-10-19')).map(({ completed_at }) => completed_at !== null)).toEqual([false])
+  })
+
+  it('keeps the professional plan separate from routine sessions and persists goal edits', async () => {
+    const data = createDataAccess(null, null)
+    const goals = await data.loadStudyGoals()
+    expect(goals).toHaveLength(14)
+    expect(goals.every(({ completed_at }) => completed_at === null)).toBe(true)
+    const first = goals[0]
+    const completed = await data.completeStudyGoal(first.id, true)
+    expect(completed.completed_at).not.toBeNull()
+    const custom = await data.saveStudyGoal({ track: 'gpt', week_start: '2026-10-12', title: 'Objetivo pessoal', description: '' })
+    expect((await createDataAccess(null, null).loadStudyGoals()).find(({ id }) => id === custom.id)?.title).toBe('Objetivo pessoal')
+    await data.deleteStudyGoal(custom.id)
+    expect((await data.loadStudyGoals()).some(({ id }) => id === custom.id)).toBe(false)
+    expect((await data.loadCompletions('2026-10-12'))).toHaveLength(0)
   })
 })

@@ -1,19 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { categories, type Completion, type Database, type RoutineDraft, type RoutineItem } from './types'
+import { categories, type Completion, type Database, type RoutineDraft, type RoutineItem, type StudyGoal, type StudyGoalDraft } from './types'
 import { categoryIsTrackable, toggleCompletion } from './domain'
 import { initialRoutine } from './routine'
+import { isStudyGoal, studyPlan } from './studyPlan'
 
-type LocalData = { items: RoutineItem[]; completions: Completion[] }
+type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[] }
 const localKey = 'minha-rotina-v1'
 
 function readLocal(): LocalData {
   const raw = localStorage.getItem(localKey)
-  if (!raw) return { items: [], completions: [] }
+  if (!raw) return { items: [], completions: [], studyGoals: [] }
   const value: unknown = JSON.parse(raw)
   if (!value || typeof value !== 'object' || !('items' in value) || !Array.isArray(value.items) || !value.items.every(isRoutineItem) || !('completions' in value) || !Array.isArray(value.completions) || !value.completions.every(isCompletion)) {
     throw new Error('Os dados de demonstração estão inválidos. Limpe o armazenamento local para continuar.')
   }
-  return { items: value.items, completions: value.completions }
+  return { items: value.items, completions: value.completions, studyGoals: 'studyGoals' in value && Array.isArray(value.studyGoals) && value.studyGoals.every(isStudyGoal) ? value.studyGoals : [] }
 }
 
 function isRoutineItem(value: unknown): value is RoutineItem {
@@ -54,17 +55,26 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
     async loadItems(): Promise<RoutineItem[]> {
       if (!client) {
         const local = readLocal()
+        local.items = local.items.filter((item) => !/deslocamento|buscar namorada|deixar namorada|buscar colega/i.test(item.title))
         if (!local.items.length) {
           local.items = makeInitialItems(null)
-          writeLocal(local)
         }
+        writeLocal(local)
         return local.items.filter((item) => item.active)
       }
       const ownerId = requireUserId(userId)
       const { data, error } = await client.from('routine_items').select('*').eq('user_id', ownerId).order('starts_at')
       if (error) failure(error)
-      if (data.length) return data.filter((item) => item.active).map(parseRoutineItem)
-      const seeds = initialRoutine.map((item) => ({ ...item, user_id: ownerId, is_trackable: categoryIsTrackable(item.category), active: true }))
+      const eligible = data.filter((item) => !/deslocamento|buscar namorada|deixar namorada|buscar colega/i.test(item.title))
+      if (eligible.length) {
+        const removed = data.filter((item) => !eligible.includes(item))
+        if (removed.length) {
+          const { error: archiveError } = await client.from('routine_items').update({ active: false }).in('id', removed.map(({ id }) => id)).eq('user_id', ownerId)
+          if (archiveError) failure(archiveError)
+        }
+        return eligible.filter((item) => item.active).map(parseRoutineItem)
+      }
+      const seeds = initialRoutine.filter((item) => !/deslocamento|buscar namorada|deixar namorada|buscar colega/i.test(item.title)).map((item) => ({ ...item, user_id: ownerId, is_trackable: categoryIsTrackable(item.category), active: true }))
       const { data: seeded, error: seedError } = await client.from('routine_items').upsert(seeds, { onConflict: 'user_id,weekday,starts_at,title,category' }).select()
       if (seedError) failure(seedError)
       return seeded.map(parseRoutineItem)
@@ -118,6 +128,62 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       const { data, error } = await client.from('completions').upsert({ ...values, user_id: requireUserId(userId) }, { onConflict: 'user_id,routine_item_id,local_date' }).select().single()
       if (error) failure(error)
       return data
+    },
+    async loadStudyGoals(): Promise<StudyGoal[]> {
+      if (!client) {
+        const data = readLocal()
+        if (!data.studyGoals.length) data.studyGoals = studyPlan.map((goal) => ({ ...goal, id: crypto.randomUUID(), user_id: null, completed_at: null }))
+        writeLocal(data)
+        return data.studyGoals
+      }
+      const ownerId = requireUserId(userId)
+      const { data, error } = await client.from('study_goals').select('*').eq('user_id', ownerId).order('week_start').order('track')
+      if (error) failure(error)
+      if (data.length) return data
+      const { error: seedError } = await client.from('study_goals').upsert(studyPlan.map((goal) => ({ ...goal, user_id: ownerId, completed_at: null })), { onConflict: 'user_id,week_start,track,title', ignoreDuplicates: true })
+      if (seedError) failure(seedError)
+      const { data: allGoals, error: loadError } = await client.from('study_goals').select('*').eq('user_id', ownerId).order('week_start').order('track')
+      if (loadError) failure(loadError)
+      return allGoals
+    },
+    async saveStudyGoal(draft: StudyGoalDraft, id?: string): Promise<StudyGoal> {
+      const values = { ...draft, title: draft.title.trim(), description: draft.description?.trim() || null }
+      if (!client) {
+        const local = readLocal()
+        const old = id ? local.studyGoals.find((goal) => goal.id === id) : undefined
+        const saved = { ...values, id: id ?? crypto.randomUUID(), user_id: null, completed_at: old?.completed_at ?? null }
+        writeLocal({ ...local, studyGoals: [...local.studyGoals.filter((goal) => goal.id !== saved.id), saved] })
+        return saved
+      }
+      const ownerId = requireUserId(userId)
+      const query = id
+        ? client.from('study_goals').update(values).eq('id', id).eq('user_id', ownerId)
+        : client.from('study_goals').insert({ ...values, user_id: ownerId })
+      const { data, error } = await query.select().single()
+      if (error) failure(error)
+      return data
+    },
+    async completeStudyGoal(id: string, completed: boolean): Promise<StudyGoal> {
+      if (!client) {
+        const local = readLocal()
+        const goal = local.studyGoals.find((entry) => entry.id === id)
+        if (!goal) throw new Error('Objetivo não encontrado.')
+        const saved = { ...goal, completed_at: completed ? new Date().toISOString() : null }
+        writeLocal({ ...local, studyGoals: local.studyGoals.map((entry) => entry.id === id ? saved : entry) })
+        return saved
+      }
+      const { data, error } = await client.from('study_goals').update({ completed_at: completed ? new Date().toISOString() : null }).eq('id', id).eq('user_id', requireUserId(userId)).select().single()
+      if (error) failure(error)
+      return data
+    },
+    async deleteStudyGoal(id: string): Promise<void> {
+      if (!client) {
+        const local = readLocal()
+        writeLocal({ ...local, studyGoals: local.studyGoals.filter((goal) => goal.id !== id) })
+        return
+      }
+      const { error } = await client.from('study_goals').delete().eq('id', id).eq('user_id', requireUserId(userId))
+      if (error) failure(error)
     },
   }
 }
