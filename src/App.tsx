@@ -4,7 +4,7 @@ import AuthScreen, { Mark } from './AuthScreen'
 import { bahiaToday, weekStart } from './domain'
 import { createDataAccess } from './data'
 import { configurationError, supabase } from './supabase'
-import type { Completion, ProjectDraft, ProjectStageDraft, ProjectTaskDraft, ProjectTree, RoutineDraft, RoutineItem } from './types'
+import type { Completion, LifeEvent, LifeEventDraft, ProjectDraft, ProjectStageDraft, ProjectTaskDraft, ProjectTree, RoutineDraft, RoutineItem } from './types'
 
 const Projects = lazy(() => import('./Projects'))
 const RoutineView = lazy(() => import('./RoutineView'))
@@ -24,6 +24,9 @@ export default function App() {
   const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [], stages: [], tasks: [] })
   const [projectLoading, setProjectLoading] = useState(false)
   const [projectError, setProjectError] = useState('')
+  const [events, setEvents] = useState<LifeEvent[]>([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState('')
 
   useEffect(() => {
     if (!supabase) return
@@ -70,6 +73,26 @@ export default function App() {
     document.addEventListener('visibilitychange', onFocus)
     return () => { active = false; window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
   }, [dataAccess, startOfWeek])
+
+  useEffect(() => {
+    let active = true
+    async function refreshEvents() {
+      setEventsLoading(true)
+      try {
+        const loaded = await dataAccess.loadLifeEvents()
+        if (active) { setEvents(loaded); setEventsError('') }
+      } catch (cause) {
+        if (active) setEventsError(cause instanceof Error ? cause.message : 'Não foi possível carregar os eventos.')
+      } finally {
+        if (active) setEventsLoading(false)
+      }
+    }
+    void refreshEvents()
+    const onFocus = () => { if (document.visibilityState === 'visible') void refreshEvents() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => { active = false; window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
+  }, [dataAccess])
 
   useEffect(() => {
     if (section !== 'projects') return
@@ -123,6 +146,28 @@ export default function App() {
     setDialogItem(undefined)
   }
 
+  async function saveEvent(draft: LifeEventDraft, id?: string) {
+    try {
+      const saved = await dataAccess.saveLifeEvent(draft, id)
+      setEvents((current) => [...current.filter((event) => event.id !== saved.id), saved].sort((a, b) => a.event_date.localeCompare(b.event_date)))
+      setEventsError('')
+    } catch (cause) {
+      setEventsError(cause instanceof Error ? cause.message : 'Não foi possível salvar o evento.')
+      throw cause
+    }
+  }
+
+  async function deleteEvent(id: string) {
+    try {
+      await dataAccess.deleteLifeEvent(id)
+      setEvents((current) => current.filter((event) => event.id !== id))
+      setEventsError('')
+    } catch (cause) {
+      setEventsError(cause instanceof Error ? cause.message : 'Não foi possível excluir o evento.')
+      throw cause
+    }
+  }
+
   async function signOut() {
     if (!supabase) return
     const { error: signOutError } = await supabase.auth.signOut()
@@ -143,7 +188,7 @@ export default function App() {
 
         <nav aria-label="Navegação principal" className="mt-6 flex rounded-full border border-[#e0e8e0] bg-white p-1"><button aria-current={section === 'routine' ? 'page' : undefined} onClick={() => setSection('routine')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'routine' ? 'bg-ink text-white' : 'text-muted'}`}>Minha Rotina</button><button aria-current={section === 'projects' ? 'page' : undefined} onClick={() => setSection('projects')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'projects' ? 'bg-ink text-white' : 'text-muted'}`}>Meus Projetos</button></nav>
 
-        <Suspense fallback={<main className="mt-8 rounded-2xl border border-[#e4eae4] bg-white p-6 text-sm text-muted" role="status">Carregando…</main>}>{section === 'projects' ? <main className="mt-8"><Projects tree={projectTree} loading={projectLoading} error={projectError} {...projectActions} /></main> : <RoutineView selectedDate={selectedDate} onSelectDate={setSelectedDate} items={items} completions={completions} loading={loading} error={error} authError={authError} clockNow={clockNow} dialogItem={dialogItem} onToggle={(item) => void toggle(item)} onAddActivity={() => setDialogItem(null)} onEditActivity={setDialogItem} onCloseDialog={() => setDialogItem(undefined)} onSaveItem={saveItem} onArchiveItem={archiveItem} />}</Suspense>
+        <Suspense fallback={<main className="mt-8 rounded-2xl border border-[#e4eae4] bg-white p-6 text-sm text-muted" role="status">Carregando…</main>}>{section === 'projects' ? <main className="mt-8"><Projects tree={projectTree} loading={projectLoading} error={projectError} {...projectActions} /></main> : <RoutineView selectedDate={selectedDate} onSelectDate={setSelectedDate} items={items} completions={completions} loading={loading} error={error} authError={authError} clockNow={clockNow} dialogItem={dialogItem} events={events} eventsLoading={eventsLoading} eventsError={eventsError} onToggle={(item) => void toggle(item)} onAddActivity={() => setDialogItem(null)} onEditActivity={setDialogItem} onCloseDialog={() => setDialogItem(undefined)} onSaveItem={saveItem} onArchiveItem={archiveItem} onSaveEvent={saveEvent} onDeleteEvent={deleteEvent} />}</Suspense>
       </div>
     </div>
   )

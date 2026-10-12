@@ -1,6 +1,7 @@
 import ActivityDialog from './ActivityDialog'
+import UpcomingEvents from './UpcomingEvents'
 import { addDays, bahiaToday, currentOrNextActivity, dayItems, formatDate, weeklyProgress, weekdayShort, weekStart } from './domain'
-import type { Completion, RoutineDraft, RoutineItem } from './types'
+import type { Completion, LifeEvent, LifeEventDraft, RoutineDraft, RoutineItem } from './types'
 
 type Props = {
   selectedDate: string
@@ -12,15 +13,20 @@ type Props = {
   authError: string
   clockNow: Date
   dialogItem: RoutineItem | null | undefined
+  events: LifeEvent[]
+  eventsLoading: boolean
+  eventsError: string
   onToggle: (item: RoutineItem) => void
   onAddActivity: () => void
   onEditActivity: (item: RoutineItem) => void
   onCloseDialog: () => void
   onSaveItem: (draft: RoutineDraft, id?: string) => Promise<void>
   onArchiveItem: (id: string) => Promise<void>
+  onSaveEvent: (draft: LifeEventDraft, id?: string) => Promise<void>
+  onDeleteEvent: (id: string) => Promise<void>
 }
 
-export default function RoutineView({ selectedDate, onSelectDate, items, completions, loading, error, authError, clockNow, dialogItem, onToggle, onAddActivity, onEditActivity, onCloseDialog, onSaveItem, onArchiveItem }: Props) {
+export default function RoutineView({ selectedDate, onSelectDate, items, completions, loading, error, authError, clockNow, dialogItem, events, eventsLoading, eventsError, onToggle, onAddActivity, onEditActivity, onCloseDialog, onSaveItem, onArchiveItem, onSaveEvent, onDeleteEvent }: Props) {
   const startOfWeek = weekStart(selectedDate)
   const dates = Array.from({ length: 7 }, (_, index) => addDays(startOfWeek, index))
   const visibleItems = dayItems(items, selectedDate)
@@ -51,7 +57,7 @@ export default function RoutineView({ selectedDate, onSelectDate, items, complet
       })}</ol>}
     </section>
 
-    <aside className="lg:sticky lg:top-6" aria-labelledby="week-summary"><section className="rounded-[1.6rem] bg-ink p-5 text-white sm:p-6"><div className="flex items-center justify-between"><h2 id="week-summary" className="text-base font-semibold">Seu ritmo na semana</h2><span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-lime" aria-hidden="true">↗</span></div><p className="mt-1 text-xs text-white/60">Só atividades acompanháveis contam aqui.</p><div className="mt-6 space-y-5"><Progress label="Academia" value={progress.gymDone} planned={progress.gymPlanned} unit="treinos" /><Progress label="Estudos" value={progress.studyDone} planned={progress.studyPlanned} unit="sessões" /></div></section><p className="mt-4 px-1 text-xs leading-5 text-muted">Os compromissos ficam no seu roteiro. Estudos e academia têm checklist por data.</p></aside>
+    <aside className="lg:sticky lg:top-6" aria-labelledby="week-summary"><section className="rounded-[1.6rem] bg-ink p-5 text-white sm:p-6"><div className="flex items-center justify-between"><h2 id="week-summary" className="text-base font-semibold">Seu ritmo na semana</h2><span className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-lime" aria-hidden="true">↗</span></div><p className="mt-1 text-xs text-white/60">Só atividades acompanháveis contam aqui.</p><div className="mt-6 space-y-5"><Progress label="Academia" value={progress.gymDone} planned={progress.gymPlanned} unit="treinos" /><Progress label="Estudos" value={progress.studyDone} planned={progress.studyPlanned} unit="sessões" /></div></section><p className="mt-4 px-1 text-xs leading-5 text-muted">Os compromissos ficam no seu roteiro. Estudos e academia têm checklist por data.</p><UpcomingEvents events={events} today={today} loading={eventsLoading} error={eventsError} onSave={onSaveEvent} onDelete={onDeleteEvent} /></aside>
     {dialogItem !== undefined && <ActivityDialog item={dialogItem} weekday={new Date(`${selectedDate}T00:00:00Z`).getUTCDay()} onClose={onCloseDialog} onSave={onSaveItem} onArchive={onArchiveItem} />}
   </main>
 }

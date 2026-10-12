@@ -1,16 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { categories, type Completion, type Database, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
+import { categories, type Completion, type Database, type LifeEvent, type LifeEventDraft, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
 import { categoryIsTrackable, toggleCompletion } from './domain'
 import { initialRoutine } from './routine'
 import { isStudyGoal } from './studyPlan'
 import { awsProjectSeed, isProject, isProjectStage, isProjectTask, seedLocalAwsProject } from './projectPlan'
 
-type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[]; projects: Project[]; projectStages: ProjectStage[]; projectTasks: ProjectTask[]; projectSeeded: boolean }
+type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[]; projects: Project[]; projectStages: ProjectStage[]; projectTasks: ProjectTask[]; lifeEvents: LifeEvent[]; projectSeeded: boolean }
 const localKey = 'minha-rotina-v1'
 
 function readLocal(): LocalData {
   const raw = localStorage.getItem(localKey)
-  if (!raw) return { items: [], completions: [], studyGoals: [], projects: [], projectStages: [], projectTasks: [], projectSeeded: false }
+  if (!raw) return { items: [], completions: [], studyGoals: [], projects: [], projectStages: [], projectTasks: [], lifeEvents: [], projectSeeded: false }
   const value: unknown = JSON.parse(raw)
   if (!value || typeof value !== 'object' || !('items' in value) || !Array.isArray(value.items) || !value.items.every(isRoutineItem) || !('completions' in value) || !Array.isArray(value.completions) || !value.completions.every(isCompletion)) {
     throw new Error('Os dados de demonstração estão inválidos. Limpe o armazenamento local para continuar.')
@@ -19,7 +19,18 @@ function readLocal(): LocalData {
   const projects = 'projects' in value && Array.isArray(value.projects) && value.projects.every(isProject) ? value.projects : []
   const projectStages = 'projectStages' in value && Array.isArray(value.projectStages) && value.projectStages.every(isProjectStage) ? value.projectStages : []
   const projectTasks = 'projectTasks' in value && Array.isArray(value.projectTasks) && value.projectTasks.every(isProjectTask) ? value.projectTasks : []
-  return { items: value.items, completions: value.completions, studyGoals: savedGoals.filter((goal) => goal.track === 'aws').map((goal) => ({ ...goal, parent_goal_id: goal.parent_goal_id ?? null, optional: goal.optional ?? false, waivable: goal.waivable ?? false, waived_at: goal.waived_at ?? null, archived_at: goal.archived_at ?? null })), projects, projectStages, projectTasks, projectSeeded: 'projectSeeded' in value && value.projectSeeded === true }
+  const lifeEvents = 'lifeEvents' in value && Array.isArray(value.lifeEvents) && value.lifeEvents.every(isLifeEvent) ? value.lifeEvents : []
+  return { items: value.items, completions: value.completions, studyGoals: savedGoals.filter((goal) => goal.track === 'aws').map((goal) => ({ ...goal, parent_goal_id: goal.parent_goal_id ?? null, optional: goal.optional ?? false, waivable: goal.waivable ?? false, waived_at: goal.waived_at ?? null, archived_at: goal.archived_at ?? null })), projects, projectStages, projectTasks, lifeEvents, projectSeeded: 'projectSeeded' in value && value.projectSeeded === true }
+}
+
+function isDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+function isLifeEvent(value: unknown): value is LifeEvent {
+  return typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string' && 'user_id' in value && (typeof value.user_id === 'string' || value.user_id === null) && 'title' in value && typeof value.title === 'string' && 'event_date' in value && typeof value.event_date === 'string' && isDateOnly(value.event_date) && 'description' in value && (typeof value.description === 'string' || value.description === null) && 'created_at' in value && typeof value.created_at === 'string' && 'updated_at' in value && typeof value.updated_at === 'string'
 }
 
 function isRoutineItem(value: unknown): value is RoutineItem {
@@ -133,6 +144,38 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       const { data, error } = await client.from('completions').upsert({ ...values, user_id: requireUserId(userId) }, { onConflict: 'user_id,routine_item_id,local_date' }).select().single()
       if (error) failure(error)
       return data
+    },
+    async loadLifeEvents(): Promise<LifeEvent[]> {
+      if (!client) return readLocal().lifeEvents.sort((a, b) => a.event_date.localeCompare(b.event_date))
+      const { data, error } = await client.from('life_events').select('*').eq('user_id', requireUserId(userId)).order('event_date').order('created_at')
+      if (error) failure(error)
+      return data
+    },
+    async saveLifeEvent(draft: LifeEventDraft, id?: string): Promise<LifeEvent> {
+      const values = { title: draft.title.trim(), event_date: draft.event_date, description: draft.description?.trim() || null }
+      if (!values.title || values.title.length > 120 || !isDateOnly(values.event_date) || (values.description?.length ?? 0) > 1000) throw new Error('Confira o título, a data e a descrição do evento.')
+      if (!client) {
+        const local = readLocal()
+        const existing = id ? local.lifeEvents.find((event) => event.id === id) : undefined
+        const now = new Date().toISOString()
+        const saved: LifeEvent = { ...values, id: id ?? crypto.randomUUID(), user_id: null, created_at: existing?.created_at ?? now, updated_at: now }
+        writeLocal({ ...local, lifeEvents: [...local.lifeEvents.filter((event) => event.id !== saved.id), saved] })
+        return saved
+      }
+      const ownerId = requireUserId(userId)
+      const query = id ? client.from('life_events').update({ ...values, updated_at: new Date().toISOString() }).eq('id', id).eq('user_id', ownerId) : client.from('life_events').insert({ ...values, user_id: ownerId })
+      const { data, error } = await query.select().single()
+      if (error) failure(error)
+      return data
+    },
+    async deleteLifeEvent(id: string): Promise<void> {
+      if (!client) {
+        const local = readLocal()
+        writeLocal({ ...local, lifeEvents: local.lifeEvents.filter((event) => event.id !== id) })
+        return
+      }
+      const { error } = await client.from('life_events').delete().eq('id', id).eq('user_id', requireUserId(userId))
+      if (error) failure(error)
     },
     async loadProjects(): Promise<ProjectTree> {
       if (!client) {

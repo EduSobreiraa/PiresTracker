@@ -21,6 +21,9 @@ export type Completion = {
   completed_at: string | null
 }
 
+export type LifeEvent = { id: string; user_id: string | null; title: string; event_date: string; description: string | null; created_at: string; updated_at: string }
+export type LifeEventDraft = Pick<LifeEvent, 'title' | 'event_date' | 'description'>
+
 export type RoutineDraft = Pick<RoutineItem, 'weekday' | 'starts_at' | 'ends_at' | 'title' | 'category'>
 export type StudyTrack = 'aws' | 'gpt'
 export type StudyGoal = { id: string; user_id: string | null; track: StudyTrack; title: string; description: string | null; week_start: string; completed_at: string | null; parent_goal_id: string | null; optional: boolean; waivable: boolean; waived_at: string | null; archived_at: string | null }
@@ -80,6 +83,12 @@ export type Database = {
         Row: Omit<ProjectTask, 'user_id'> & { user_id: string }
         Insert: Omit<ProjectTask, 'id' | 'user_id' | 'completed_at' | 'waived_at' | 'created_at' | 'updated_at'> & { id?: string; user_id: string; completed_at?: string | null; waived_at?: string | null; created_at?: string; updated_at?: string }
         Update: Partial<Omit<ProjectTask, 'id' | 'user_id' | 'created_at'>>
+        Relationships: []
+      },
+      life_events: {
+        Row: Omit<LifeEvent, 'user_id'> & { user_id: string }
+        Insert: Omit<LifeEvent, 'id' | 'user_id' | 'created_at' | 'updated_at'> & { id?: string; user_id: string; created_at?: string; updated_at?: string }
+        Update: Partial<Omit<LifeEvent, 'id' | 'user_id' | 'created_at'>>
         Relationships: []
       }
     }

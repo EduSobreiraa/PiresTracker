@@ -67,6 +67,20 @@ describe('local demonstration storage', () => {
     expect(completions[0].completed_at).not.toBeNull()
   })
 
+  it('saves, sorts, edits and deletes life events across reloads', async () => {
+    const firstSession = createDataAccess(null, null)
+    const later = await firstSession.saveLifeEvent({ title: 'Prova de Estruturas de Dados', event_date: '2026-11-12', description: 'Árvores e grafos' })
+    const earlier = await firstSession.saveLifeEvent({ title: 'Prova de Cálculo I', event_date: '2026-11-03', description: null })
+
+    expect((await createDataAccess(null, null).loadLifeEvents()).map(({ id }) => id)).toEqual([earlier.id, later.id])
+    await firstSession.saveLifeEvent({ title: 'Prova de Cálculo I', event_date: '2026-11-04', description: 'Derivadas' }, earlier.id)
+    expect((await createDataAccess(null, null).loadLifeEvents()).find(({ id }) => id === earlier.id)).toMatchObject({ event_date: '2026-11-04', description: 'Derivadas' })
+
+    await firstSession.deleteLifeEvent(later.id)
+    expect((await createDataAccess(null, null).loadLifeEvents()).map(({ id }) => id)).toEqual([earlier.id])
+    await expect(firstSession.saveLifeEvent({ title: 'Data inválida', event_date: '2026-02-30', description: null })).rejects.toThrow('Confira o título, a data e a descrição do evento.')
+  })
+
   it('records unchecking against the selected date without erasing the prior week', async () => {
     const data = createDataAccess(null, null)
     const item = await data.saveItem({ weekday: 1, starts_at: '13:00', ends_at: '13:40', title: 'Estudos', category: 'study' })
