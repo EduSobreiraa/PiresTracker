@@ -29,6 +29,18 @@ export function awsStageKey(week: string, title: string): string {
 
 export const awsProjectTasks = awsStudyTasks.map((goal, index) => ({ seed_key: `aws-task:${goal.week_start}:${goal.title}`, stage_key: awsStageKey(goal.week_start, goal.title), title: goal.title, description: goal.description, planned_week: goal.week_start, optional: goal.optional ?? false, waivable: goal.waivable ?? false, position: index }))
 
+export function projectTaskWeeks(tasks: ProjectTask[]) {
+  const groups = new Map<string | null, ProjectTask[]>()
+  for (const task of tasks) groups.set(task.planned_week, [...(groups.get(task.planned_week) ?? []), task])
+  const planOrder = new Map(awsStudyTasks.map((task, index) => [task.title, index]))
+  return [...groups.entries()]
+    .sort(([a], [b]) => a === null ? 1 : b === null ? -1 : a.localeCompare(b))
+    .map(([plannedWeek, weekTasks]) => ({
+      plannedWeek,
+      tasks: weekTasks.sort((a, b) => (planOrder.get(a.title) ?? Number.MAX_SAFE_INTEGER) - (planOrder.get(b.title) ?? Number.MAX_SAFE_INTEGER) || a.position - b.position),
+    }))
+}
+
 export function seedLocalAwsProject(goals: StudyGoal[]): { project: Project; stages: ProjectStage[]; tasks: ProjectTask[] } {
   const now = new Date().toISOString()
   const projectId = crypto.randomUUID()

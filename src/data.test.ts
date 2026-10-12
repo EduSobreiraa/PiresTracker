@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createDataAccess } from './data'
 import { dayItems, weeklyProgress } from './domain'
-import { projectProgress } from './projectPlan'
+import { projectProgress, projectTaskWeeks } from './projectPlan'
 
 const values = new Map<string, string>()
 
@@ -125,5 +125,21 @@ describe('local demonstration storage', () => {
     expect((await data.loadProjects()).projects.find(({ id }) => id === project.id)?.name).toBe('Projeto alterado')
     await data.deleteProject(project.id)
     expect((await data.loadProjects()).projects.some(({ id }) => id === project.id)).toBe(false)
+  })
+
+  it('groups project tasks by planned week in plan order', () => {
+    const task = (id: string, title: string, planned_week: string | null, position: number) => ({ id, user_id: null, project_id: 'project', stage_id: 'stage', seed_key: null, title, description: null, planned_week, position, optional: false, waivable: false, completed_at: null, waived_at: null, created_at: '', updated_at: '' })
+    const groups = projectTaskWeeks([
+      task('late', 'Domain 4 Practice', '2026-11-02', 0),
+      task('early', 'Domain 3 Review — Aplicações de modelos de base', '2026-11-02', 1),
+      task('none', 'Tarefa sem data', null, 0),
+      task('before', 'Domain 1 Review — Fundamentos de IA e ML', '2026-10-26', 0),
+    ])
+
+    expect(groups.map(({ plannedWeek, tasks }) => [plannedWeek, tasks.map(({ id }) => id)])).toEqual([
+      ['2026-10-26', ['before']],
+      ['2026-11-02', ['early', 'late']],
+      [null, ['none']],
+    ])
   })
 })
