@@ -29,7 +29,7 @@ O primeiro login GitHub cria o usuário de Auth no projeto. Depois de criar sua 
 
 A primeira abertura cria a rotina confirmada da planilha v0.6 para a conta autenticada ou para a demonstração local. Compromissos e deslocamentos aparecem sem checkbox; estudos e academia registram conclusões por data. A timeline destaca a atividade atual ou a próxima, e o resumo usa a quantidade de sessões ativas planejadas na semana. Ao remover uma atividade recorrente, o app preserva o histórico das conclusões.
 
-As migrações em `supabase/migrations` criam `routine_items`, `completions`, as políticas RLS e a identidade idempotente da rotina. Elas já foram aplicadas ao projeto Supabase conectado neste ambiente. O banco restringe cada tabela ao usuário autenticado e impede duplicar uma conclusão para a mesma atividade e data.
+As migrações em `supabase/migrations` criam `routine_items`, `completions`, as políticas RLS e `study_goals`. `20261012160308_add_study_goal_tasks.sql` adiciona o vínculo entre tarefa e objetivo, com exclusão em cascata dentro da mesma conta; `20261012160737_seed_aws_practice_task.sql` separa a prática adicional do curso AWS. Ambas foram aplicadas ao projeto Supabase conectado. Em outro projeto, aplique as migrações em ordem.
 
 ## Verificar
 

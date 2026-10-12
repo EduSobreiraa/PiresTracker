@@ -23,8 +23,8 @@ export type Completion = {
 
 export type RoutineDraft = Pick<RoutineItem, 'weekday' | 'starts_at' | 'ends_at' | 'title' | 'category'>
 export type StudyTrack = 'aws' | 'gpt'
-export type StudyGoal = { id: string; user_id: string | null; track: StudyTrack; title: string; description: string | null; week_start: string; completed_at: string | null }
-export type StudyGoalDraft = Pick<StudyGoal, 'track' | 'title' | 'description' | 'week_start'>
+export type StudyGoal = { id: string; user_id: string | null; track: StudyTrack; title: string; description: string | null; week_start: string; completed_at: string | null; parent_goal_id?: string | null }
+export type StudyGoalDraft = Pick<StudyGoal, 'track' | 'title' | 'description' | 'week_start' | 'parent_goal_id'>
 
 type RoutineItemRow = Omit<RoutineItem, 'category' | 'user_id'> & { category: string; user_id: string; created_at: string }
 type CompletionRow = Omit<Completion, 'user_id'> & { user_id: string; created_at: string }
@@ -52,8 +52,8 @@ export type Database = {
         }]
       }
       study_goals: {
-        Row: Omit<StudyGoal, 'user_id'> & { user_id: string; created_at: string; updated_at: string }
-        Insert: Omit<StudyGoal, 'id' | 'user_id' | 'completed_at'> & { user_id: string; completed_at?: string | null; id?: string; created_at?: string; updated_at?: string }
+        Row: Omit<StudyGoal, 'user_id' | 'parent_goal_id'> & { user_id: string; parent_goal_id: string | null; created_at: string; updated_at: string }
+        Insert: Omit<StudyGoal, 'id' | 'user_id' | 'completed_at' | 'parent_goal_id'> & { user_id: string; completed_at?: string | null; parent_goal_id?: string | null; id?: string; created_at?: string; updated_at?: string }
         Update: Partial<Omit<StudyGoal, 'id' | 'user_id'>>
         Relationships: []
       }

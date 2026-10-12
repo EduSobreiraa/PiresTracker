@@ -138,7 +138,14 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
           data.studyGoals = [...studyPlan.map((goal) => ({ ...goal, id: crypto.randomUUID(), user_id: null, completed_at: oldGoals.find((old) => old.track === goal.track && old.week_start === goal.week_start)?.completed_at ?? null })), ...oldGoals.filter((goal) => !oldTitles.includes(goal.title))]
         }
         if (!data.studyGoals.length) data.studyGoals = studyPlan.map((goal) => ({ ...goal, id: crypto.randomUUID(), user_id: null, completed_at: null }))
-        data.studyPlanVersion = 2
+        if ((data.studyPlanVersion ?? 0) < 3) {
+          const parent = data.studyGoals.find((goal) => goal.track === 'aws' && goal.week_start === '2026-10-12' && goal.title === 'Concluir Exploring Artificial Intelligence Use Cases and Applications' && !goal.parent_goal_id)
+          const title = 'Resolver 10 questões adicionais de fixação'
+          if (parent && !data.studyGoals.some((goal) => goal.parent_goal_id === parent.id && goal.title === title)) {
+            data.studyGoals.push({ id: crypto.randomUUID(), user_id: null, track: parent.track, week_start: parent.week_start, title, description: null, completed_at: null, parent_goal_id: parent.id })
+          }
+        }
+        data.studyPlanVersion = 3
         writeLocal(data)
         return data.studyGoals
       }
@@ -157,7 +164,7 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       if (!client) {
         const local = readLocal()
         const old = id ? local.studyGoals.find((goal) => goal.id === id) : undefined
-        const saved = { ...values, id: id ?? crypto.randomUUID(), user_id: null, completed_at: old?.completed_at ?? null }
+        const saved = { ...values, parent_goal_id: values.parent_goal_id ?? null, id: id ?? crypto.randomUUID(), user_id: null, completed_at: old?.completed_at ?? null }
         writeLocal({ ...local, studyGoals: [...local.studyGoals.filter((goal) => goal.id !== saved.id), saved] })
         return saved
       }
@@ -185,7 +192,7 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
     async deleteStudyGoal(id: string): Promise<void> {
       if (!client) {
         const local = readLocal()
-        writeLocal({ ...local, studyGoals: local.studyGoals.filter((goal) => goal.id !== id) })
+        writeLocal({ ...local, studyGoals: local.studyGoals.filter((goal) => goal.id !== id && goal.parent_goal_id !== id) })
         return
       }
       const { error } = await client.from('study_goals').delete().eq('id', id).eq('user_id', requireUserId(userId))

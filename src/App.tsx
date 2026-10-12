@@ -56,16 +56,25 @@ export default function App() {
 
   useEffect(() => {
     let active = true
-    setLoading(true)
-    setError('')
-    Promise.all([dataAccess.loadItems(), dataAccess.loadCompletions(startOfWeek)]).then(([loadedItems, loadedCompletions]) => {
-      if (!active) return
-      setItems(loadedItems)
-      setCompletions(loadedCompletions)
-    }).catch((cause: unknown) => {
-      if (active) setError(cause instanceof Error ? cause.message : 'Não foi possível carregar sua rotina.')
-    }).finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
+    async function refresh() {
+      setLoading(true)
+      setError('')
+      try {
+        const [loadedItems, loadedCompletions] = await Promise.all([dataAccess.loadItems(), dataAccess.loadCompletions(startOfWeek)])
+        if (!active) return
+        setItems(loadedItems)
+        setCompletions(loadedCompletions)
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : 'Não foi possível carregar sua rotina.')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    void refresh()
+    const onFocus = () => { if (document.visibilityState === 'visible') void refresh() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => { active = false; window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus) }
   }, [dataAccess, startOfWeek])
 
   useEffect(() => {
@@ -88,7 +97,7 @@ export default function App() {
   }
 
   async function deleteStudyGoal(goal: StudyGoal) {
-    try { await dataAccess.deleteStudyGoal(goal.id); setStudyGoals((current) => current.filter((entry) => entry.id !== goal.id)); setStudyError('') }
+    try { await dataAccess.deleteStudyGoal(goal.id); setStudyGoals((current) => current.filter((entry) => entry.id !== goal.id && entry.parent_goal_id !== goal.id)); setStudyError('') }
     catch (cause) { setStudyError(cause instanceof Error ? cause.message : 'Não foi possível excluir o objetivo.') }
   }
 
@@ -132,7 +141,7 @@ export default function App() {
       <div className="mx-auto max-w-6xl px-4 pb-12 pt-5 sm:px-8 sm:pt-8">
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3"><Mark /><div><p className="text-lg font-semibold tracking-tight">Minha Rotina</p><p className="text-xs text-muted">Uma semana de cada vez</p></div></div>
-          <div className="flex items-center gap-2">{supabase && session && <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button>}</div>
+          <div className="flex items-center gap-2">{!supabase && <span className="text-xs text-muted">Demonstração local · não sincroniza</span>}{supabase && session && <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button>}</div>
         </header>
 
         <nav aria-label="Navegação principal" className="mt-6 flex rounded-full border border-[#e0e8e0] bg-white p-1"><button aria-current={section === 'routine' ? 'page' : undefined} onClick={() => setSection('routine')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'routine' ? 'bg-ink text-white' : 'text-muted'}`}>Minha Rotina</button><button aria-current={section === 'studies' ? 'page' : undefined} onClick={() => setSection('studies')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'studies' ? 'bg-ink text-white' : 'text-muted'}`}>Meus Estudos</button></nav>
