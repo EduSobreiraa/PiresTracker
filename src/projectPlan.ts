@@ -5,6 +5,7 @@ export const awsProjectSeed = {
   key: 'aws_ai_practitioner',
   name: 'AWS Certified AI Practitioner (AIF-C01)',
   description: 'Preparação para a certificação AWS Certified AI Practitioner, seguindo o Exam Prep Plan oficial e os cursos complementares do AWS Artificial Intelligence Practitioner Learning Plan.',
+  estimatedMinutes: 22 * 60 + 50 + 8 * 60,
 }
 
 export const awsProjectStages = [

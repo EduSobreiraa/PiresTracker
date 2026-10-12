@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { addDays, formatDate } from './domain'
-import { projectProgress, projectTaskWeeks } from './projectPlan'
+import { awsProjectSeed, projectProgress, projectTaskWeeks } from './projectPlan'
 import type { Project, ProjectDraft, ProjectStage, ProjectStageDraft, ProjectTask, ProjectTaskDraft, ProjectTree } from './types'
 
 type Editor = { kind: 'project'; id?: string } | { kind: 'stage'; projectId: string; id?: string } | { kind: 'task'; projectId: string; stageId: string; id?: string }
@@ -64,7 +64,7 @@ export default function Projects(props: Props) {
         const stages = props.tree.stages.filter((stage) => stage.project_id === project.id)
         const tasks = props.tree.tasks.filter((task) => task.project_id === project.id)
         const progress = projectProgress(stages, tasks)
-        return <article key={project.id} className="rounded-[1.5rem] border border-[#e4eae4] bg-white p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><button onClick={() => setSelectedId(project.id)} className="min-w-0 flex-1 text-left"><h2 className="text-lg font-semibold">{project.name}</h2><p className="mt-2 line-clamp-3 text-sm leading-6 text-muted">{project.description}</p></button><IconButton label={`Editar ${project.name}`} onClick={() => openProject(project)}><PencilIcon /></IconButton></div><div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-xs text-muted"><span>{progress.completedStages}/{progress.totalStages} etapas concluídas</span><span>{progress.completedTasks}/{progress.totalTasks} tarefas concluídas</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#edf1ed]"><div className="h-full bg-[#64846f] transition-[width]" style={{ width: `${progress.stagePercent}%` }} /></div><div className="mt-4 flex items-center justify-between"><button onClick={() => setSelectedId(project.id)} className="text-sm font-semibold text-[#4e6b57]">Abrir projeto →</button><button onClick={() => { if (window.confirm(`Excluir o projeto “${project.name}” e suas etapas e tarefas?`)) void props.onDeleteProject(project.id).catch(() => undefined) }} className="rounded-full px-3 py-2 text-sm text-muted hover:bg-red-50 hover:text-red-700">Excluir</button></div></article>
+        return <article key={project.id} className="rounded-[1.5rem] border border-[#e4eae4] bg-white p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><button onClick={() => setSelectedId(project.id)} className="min-w-0 flex-1 text-left"><h2 className="text-lg font-semibold">{project.name}</h2><p className="mt-2 line-clamp-3 text-sm leading-6 text-muted">{project.description}</p></button><IconButton label={`Editar ${project.name}`} onClick={() => openProject(project)}><PencilIcon /></IconButton></div>{project.seed_key === awsProjectSeed.key && <p className="mt-4 text-sm font-medium text-[#4e6b57]">Carga estimada: {formatDuration(awsProjectSeed.estimatedMinutes)} <span className="font-normal text-muted">(plano oficial + fundamentos; Escape Room opcional à parte)</span></p>}<div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-xs text-muted"><span>{progress.completedStages}/{progress.totalStages} etapas concluídas</span><span>{progress.completedTasks}/{progress.totalTasks} tarefas concluídas</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#edf1ed]"><div className="h-full bg-[#64846f] transition-[width]" style={{ width: `${progress.stagePercent}%` }} /></div><div className="mt-4 flex items-center justify-between"><button onClick={() => setSelectedId(project.id)} className="text-sm font-semibold text-[#4e6b57]">Abrir projeto →</button><button onClick={() => { if (window.confirm(`Excluir o projeto “${project.name}” e suas etapas e tarefas?`)) void props.onDeleteProject(project.id).catch(() => undefined) }} className="rounded-full px-3 py-2 text-sm text-muted hover:bg-red-50 hover:text-red-700">Excluir</button></div></article>
       })}</div>}
     </>}
 
@@ -113,6 +113,12 @@ function ProjectDetail({ project, stages, tasks, error, onDeleteProject, onDelet
 
 function weekLabel(start: string): string {
   return `Semana de ${formatDate(start, { day: 'numeric', month: 'long' })} a ${formatDate(addDays(start, 6), { day: 'numeric', month: 'long', year: 'numeric' })}`
+}
+
+function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h${remainingMinutes ? `${String(remainingMinutes).padStart(2, '0')}` : ''}`
 }
 
 function IconButton({ label, onClick, danger = false, children }: { label: string; onClick: () => void; danger?: boolean; children: React.ReactNode }) {
