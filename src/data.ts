@@ -4,7 +4,7 @@ import { categoryIsTrackable, toggleCompletion } from './domain'
 import { initialRoutine } from './routine'
 import { isStudyGoal, studyPlan } from './studyPlan'
 
-type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[] }
+type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[]; studyPlanVersion?: number }
 const localKey = 'minha-rotina-v1'
 
 function readLocal(): LocalData {
@@ -132,7 +132,13 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
     async loadStudyGoals(): Promise<StudyGoal[]> {
       if (!client) {
         const data = readLocal()
+        const oldTitles = ['Concluir Exploring Artificial Intelligence Use Cases and Applications', 'Conhecer o ecossistema GPT / ChatGPT', 'Avançar no AWS AI Practitioner Learning Plan', 'Explorar funcionalidades e ferramentas do ChatGPT', 'Revisar domínio 1: Fundamentos de IA e ML', 'Estudar ChatGPT Work', 'Estudar domínio 2: Fundamentos de IA Generativa', 'Experimentar funcionalidades do ChatGPT', 'Estudar domínios 3 e 4', 'Comparar abordagens para tarefas empresariais', 'Estudar domínio 5 e revisar os cinco domínios', 'Consolidar experimentos e descobertas', 'Fazer simulado e avaliar preparação para o exame', 'Consolidar aprendizados de GPT / OpenAI']
+        if (!data.studyPlanVersion && data.studyGoals.length === oldTitles.length && data.studyGoals.every((goal) => oldTitles.includes(goal.title))) {
+          const oldGoals = data.studyGoals
+          data.studyGoals = [...studyPlan.map((goal) => ({ ...goal, id: crypto.randomUUID(), user_id: null, completed_at: oldGoals.find((old) => old.track === goal.track && old.week_start === goal.week_start)?.completed_at ?? null })), ...oldGoals.filter((goal) => !oldTitles.includes(goal.title))]
+        }
         if (!data.studyGoals.length) data.studyGoals = studyPlan.map((goal) => ({ ...goal, id: crypto.randomUUID(), user_id: null, completed_at: null }))
+        data.studyPlanVersion = 2
         writeLocal(data)
         return data.studyGoals
       }

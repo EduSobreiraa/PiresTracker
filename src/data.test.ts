@@ -80,7 +80,10 @@ describe('local demonstration storage', () => {
   it('keeps the professional plan separate from routine sessions and persists goal edits', async () => {
     const data = createDataAccess(null, null)
     const goals = await data.loadStudyGoals()
-    expect(goals).toHaveLength(14)
+    expect(goals).toHaveLength(42)
+    expect(goals.filter(({ track }) => track === 'aws')).toHaveLength(21)
+    expect(goals.filter(({ track }) => track === 'gpt')).toHaveLength(21)
+    expect(goals.filter(({ week_start }) => week_start === '2026-10-12')).toHaveLength(6)
     expect(goals.every(({ completed_at }) => completed_at === null)).toBe(true)
     const first = goals[0]
     const completed = await data.completeStudyGoal(first.id, true)
@@ -90,5 +93,16 @@ describe('local demonstration storage', () => {
     await data.deleteStudyGoal(custom.id)
     expect((await data.loadStudyGoals()).some(({ id }) => id === custom.id)).toBe(false)
     expect((await data.loadCompletions('2026-10-12'))).toHaveLength(0)
+  })
+
+  it('splits the old weekly bundles and carries their completion state forward', async () => {
+    const titles = ['Concluir Exploring Artificial Intelligence Use Cases and Applications', 'Conhecer o ecossistema GPT / ChatGPT', 'Avançar no AWS AI Practitioner Learning Plan', 'Explorar funcionalidades e ferramentas do ChatGPT', 'Revisar domínio 1: Fundamentos de IA e ML', 'Estudar ChatGPT Work', 'Estudar domínio 2: Fundamentos de IA Generativa', 'Experimentar funcionalidades do ChatGPT', 'Estudar domínios 3 e 4', 'Comparar abordagens para tarefas empresariais', 'Estudar domínio 5 e revisar os cinco domínios', 'Consolidar experimentos e descobertas', 'Fazer simulado e avaliar preparação para o exame', 'Consolidar aprendizados de GPT / OpenAI']
+    const oldGoals = titles.map((title, index) => ({ id: `legacy-${index}`, user_id: null, track: index % 2 === 0 ? 'aws' as const : 'gpt' as const, week_start: ['2026-10-12', '2026-10-19', '2026-10-26', '2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23'][Math.floor(index / 2)], title, description: null, completed_at: index === 0 ? '2026-10-13T10:00:00.000Z' : null }))
+    values.set('minha-rotina-v1', JSON.stringify({ items: [], completions: [], studyGoals: oldGoals }))
+
+    const goals = await createDataAccess(null, null).loadStudyGoals()
+    expect(goals).toHaveLength(42)
+    expect(goals.filter(({ week_start, track }) => week_start === '2026-10-12' && track === 'aws').every(({ completed_at }) => completed_at === oldGoals[0].completed_at)).toBe(true)
+    expect(goals.filter(({ week_start, track }) => week_start === '2026-10-12' && track === 'gpt').every(({ completed_at }) => completed_at === null)).toBe(true)
   })
 })
