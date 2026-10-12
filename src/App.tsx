@@ -103,7 +103,7 @@ export default function App() {
       <div className="mx-auto max-w-6xl px-4 pb-12 pt-5 sm:px-8 sm:pt-8">
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3"><Mark /><div><p className="text-lg font-semibold tracking-tight">Minha Rotina</p><p className="text-xs text-muted">Uma semana de cada vez</p></div></div>
-          {supabase && session ? <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button> : <span className="rounded-full bg-[#e9eee9] px-3 py-1.5 text-xs font-medium text-[#526258]">Demonstração local · sem sincronização</span>}
+          {supabase && session && <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button>}
         </header>
 
         <main className="mt-9 grid gap-6 lg:grid-cols-[minmax(0,1fr)_270px] lg:items-start">
