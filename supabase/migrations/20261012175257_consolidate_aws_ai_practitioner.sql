@@ -5,19 +5,19 @@ alter table public.study_goals
   add column if not exists archived_at timestamptz;
 
 do $$ begin
-  if not exists (select 1 from pg_constraint where conrelid = 'public.study_goals'::regclass and conname = 'study_goals_completed_or_waived') then
+  if not exists (select 1 from pg_constraint where conname = 'study_goals_completed_or_waived') then
     alter table public.study_goals add constraint study_goals_completed_or_waived
       check (completed_at is null or waived_at is null);
   end if;
 end $$;
 
 with objectives(old_title, new_title, new_description, week_start) as (values
-  ('Avançar no AWS AI Practitioner Learning Plan', 'Semana 2 — Atualizar conhecimentos AWS', 'Etapa 2 · AWS Artificial Intelligence Practitioner Learning Plan (oito cursos). Os seis cursos restantes podem ser dispensados após avaliar domínio prévio.', date '2026-10-19'),
-  ('Revisar domínio 1: Fundamentos de IA e ML', 'Semana 3 — Praticar os domínios 1 e 2', 'Etapa 3 · Analisar e praticar. Revisar Fundamentos de IA e ML e Fundamentos de IA generativa.', date '2026-10-26'),
-  ('Estudar domínio 2: Fundamentos de IA Generativa', 'Semana 4 — Praticar os domínios 3 e 4', 'Etapa 3 · Analisar e praticar. Revisar Aplicações de modelos de base e Diretrizes de IA responsável.', date '2026-11-02'),
-  ('Estudar domínios 3 e 4', 'Semana 5 — Concluir o domínio 5 e consolidar', 'Etapa 3 · Analisar e praticar. Praticar Segurança, conformidade e governança e revisar erros anteriores.', date '2026-11-09'),
-  ('Estudar domínio 5 e revisar os cinco domínios', 'Semana 6 — Diagnosticar e corrigir lacunas', 'Etapa 4 · Avaliar a preparação. Fazer o pré-teste e revisar os domínios com mais erros.', date '2026-11-16'),
-  ('Fazer simulado e avaliar preparação para o exame', 'Semana 7 — Avaliar a preparação', 'Etapa 4 · Avaliar a preparação. Fazer o simulado oficial, revisar o resultado e avaliar a prontidão para agendar o exame.', date '2026-11-23')
+  ('Avançar no AWS AI Practitioner Learning Plan', 'Semana 2 — Atualizar conhecimentos AWS', 'Concluir os cursos recomendados conforme as necessidades. Cursos podem ser dispensados após avaliar domínio prévio.', date '2026-10-19'),
+  ('Revisar domínio 1: Fundamentos de IA e ML', 'Semana 3 — Praticar os domínios 1 e 2', 'Revisar e praticar Fundamentos de IA e ML e Fundamentos de IA generativa.', date '2026-10-26'),
+  ('Estudar domínio 2: Fundamentos de IA Generativa', 'Semana 4 — Praticar os domínios 3 e 4', 'Revisar Aplicações de modelos de base e Diretrizes de IA responsável.', date '2026-11-02'),
+  ('Estudar domínios 3 e 4', 'Semana 5 — Concluir o domínio 5 e consolidar', 'Praticar Segurança, conformidade e governança e revisar erros anteriores.', date '2026-11-09'),
+  ('Estudar domínio 5 e revisar os cinco domínios', 'Semana 6 — Diagnosticar e corrigir lacunas', 'Fazer o pré-teste e revisar os domínios com mais erros.', date '2026-11-16'),
+  ('Fazer simulado e avaliar preparação para o exame', 'Semana 7 — Avaliar a preparação', 'Fazer o simulado oficial, revisar o resultado e avaliar a prontidão para agendar o exame.', date '2026-11-23')
 )
 update public.study_goals as goal
 set title = objectives.new_title,
@@ -35,7 +35,7 @@ where goal.track = 'aws' and goal.week_start = objectives.week_start
 
 insert into public.study_goals (user_id, track, title, description, week_start)
 select distinct user_id, 'aws', 'Semana 1 — Conhecer o exame e atualizar fundamentos',
-  'Etapa 1 · Conhecer o exame. Iniciar a preparação oficial e identificar lacunas. As tarefas podem ser concluídas independentemente.', date '2026-10-12'
+  'Iniciar a preparação oficial e identificar lacunas. As tarefas podem ser concluídas independentemente.', date '2026-10-12'
 from public.study_goals where track = 'aws'
 on conflict (user_id, week_start, track, title) do nothing;
 
@@ -44,7 +44,6 @@ set title = case course.title
     when 'AI and ML foundations' then 'Fundamentos de machine learning e inteligência artificial'
     when 'Exploring Artificial Intelligence Use Cases and Applications + Revisão' then 'Descrição dos casos de uso e aplicações da inteligência artificial'
   end,
-  description = '1 h · Curso concluído; conclusão preservada.',
   parent_goal_id = objective.id
 from public.study_goals as objective
 where course.track = 'aws' and course.week_start = date '2026-10-12'

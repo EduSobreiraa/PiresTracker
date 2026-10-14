@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { categories, type Completion, type Database, type LifeEvent, type LifeEventDraft, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
+import { categories, type Completion, type Database, type FinancialAccount, type FinancialArchivedTransaction, type FinancialBill, type FinancialConnection, type FinancialSyncExecution, type FinancialTransaction, type LifeEvent, type LifeEventDraft, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
 import { categoryIsTrackable, toggleCompletion } from './domain'
 import { initialRoutine } from './routine'
 import { isStudyGoal } from './studyPlan'
@@ -64,6 +64,24 @@ function parseRoutineItem(row: Database['public']['Tables']['routine_items']['Ro
 
 function makeInitialItems(userId: string | null): RoutineItem[] {
   return initialRoutine.map((item) => ({ ...item, id: crypto.randomUUID(), user_id: userId, is_trackable: categoryIsTrackable(item.category), active: true }))
+}
+
+export type FinancialWorkspace = {
+  connections: FinancialConnection[]
+  accounts: FinancialAccount[]
+  transactions: FinancialTransaction[]
+  archivedTransactions: FinancialArchivedTransaction[]
+  bills: FinancialBill[]
+  syncExecutions: FinancialSyncExecution[]
+}
+
+export type FinancialSyncResult = { accountsCount: number; transactionsCount: number; billsCount: number }
+
+function parseFinancialSyncResult(value: unknown): FinancialSyncResult {
+  if (typeof value !== 'object' || value === null || !('status' in value) || value.status !== 'SUCCEEDED' || !('accountsCount' in value) || typeof value.accountsCount !== 'number' || !('transactionsCount' in value) || typeof value.transactionsCount !== 'number' || !('billsCount' in value) || typeof value.billsCount !== 'number') {
+    throw new Error('A sincronização terminou sem um resumo válido.')
+  }
+  return { accountsCount: value.accountsCount, transactionsCount: value.transactionsCount, billsCount: value.billsCount }
 }
 
 export function createDataAccess(client: SupabaseClient<Database> | null, userId: string | null) {
@@ -150,6 +168,32 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       const { data, error } = await client.from('life_events').select('*').eq('user_id', requireUserId(userId)).order('event_date').order('created_at')
       if (error) failure(error)
       return data
+    },
+    async loadFinancialWorkspace(): Promise<FinancialWorkspace> {
+      const ownerId = requireUserId(userId)
+      if (!client) throw new Error('Entre em uma sessão Supabase para consultar seus dados financeiros.')
+      const [connections, accounts, transactions, archivedTransactions, bills, syncExecutions] = await Promise.all([
+        client.from('financial_connections').select('*').eq('user_id', ownerId).order('institution_name'),
+        client.from('financial_accounts').select('*').eq('user_id', ownerId).order('name'),
+        client.from('financial_transactions').select('*').eq('user_id', ownerId).order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(100),
+        client.from('financial_archived_transactions').select('*').eq('user_id', ownerId).order('transaction_date', { ascending: false }).order('source_row').limit(1000),
+        client.from('financial_bills').select('*').eq('user_id', ownerId).order('due_date', { ascending: false }).limit(50),
+        client.from('financial_sync_executions').select('*').eq('user_id', ownerId).order('started_at', { ascending: false }).limit(20),
+      ])
+      if (connections.error) failure(connections.error)
+      if (accounts.error) failure(accounts.error)
+      if (transactions.error) failure(transactions.error)
+      if (archivedTransactions.error && !['42P01', 'PGRST205'].includes(archivedTransactions.error.code ?? '')) failure(archivedTransactions.error)
+      if (bills.error) failure(bills.error)
+      if (syncExecutions.error) failure(syncExecutions.error)
+      return { connections: connections.data, accounts: accounts.data, transactions: transactions.data, archivedTransactions: archivedTransactions.data ?? [], bills: bills.data, syncExecutions: syncExecutions.data }
+    },
+    async syncFinancialConnection(connectionId: string): Promise<FinancialSyncResult> {
+      requireUserId(userId)
+      if (!client) throw new Error('Conecte o Supabase para sincronizar uma instituição.')
+      const { data, error } = await client.functions.invoke<unknown>('finance-sync', { body: { connectionId } })
+      if (error) throw new Error(error.message || 'Não foi possível sincronizar esta instituição.')
+      return parseFinancialSyncResult(data)
     },
     async saveLifeEvent(draft: LifeEventDraft, id?: string): Promise<LifeEvent> {
       const values = { title: draft.title.trim(), event_date: draft.event_date, description: draft.description?.trim() || null }

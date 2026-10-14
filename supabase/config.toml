@@ -1,0 +1,10 @@
+project_id = "vwroeysxtkzryizzqnjq"
+
+[functions.finance-connect-start]
+verify_jwt = true
+
+[functions.finance-connect-confirm]
+verify_jwt = true
+
+[functions.finance-sync]
+verify_jwt = true
