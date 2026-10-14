@@ -1,7 +1,7 @@
 update public.study_goals
 set description = case week_start
   when date '2026-10-12' then 'Etapa 1 · Conhecer o exame. Iniciar a preparação oficial e identificar lacunas. As tarefas podem ser concluídas independentemente.'
-  when date '2026-10-19' then 'Etapa 2 · AWS Artificial Intelligence Practitioner Learning Plan (oito cursos). Os seis cursos restantes podem ser dispensados após avaliar domínio prévio.'
+  when date '2026-10-19' then 'Etapa 2 · Atualizar conhecimentos AWS. Cursos podem ser dispensados após avaliar domínio prévio.'
   when date '2026-10-26' then 'Etapa 3 · Analisar e praticar. Revisar Fundamentos de IA e ML e Fundamentos de IA generativa.'
   when date '2026-11-02' then 'Etapa 3 · Analisar e praticar. Revisar Aplicações de modelos de base e Diretrizes de IA responsável.'
   when date '2026-11-09' then 'Etapa 3 · Analisar e praticar. Praticar Segurança, conformidade e governança e revisar erros anteriores.'

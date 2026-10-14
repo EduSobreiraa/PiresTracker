@@ -36,6 +36,14 @@ export type ProjectStageDraft = Pick<ProjectStage, 'title' | 'description' | 'po
 export type ProjectTaskDraft = Pick<ProjectTask, 'title' | 'description' | 'planned_week' | 'position' | 'optional' | 'waivable'>
 export type ProjectTree = { projects: Project[]; stages: ProjectStage[]; tasks: ProjectTask[] }
 
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+export type FinancialConnection = { id: string; user_id: string; provider: 'pluggy'; external_item_id: string; institution_name: string; status: 'ACTIVE' | 'PENDING' | 'ERROR' | 'DISCONNECTED'; last_synced_at: string | null; next_auto_sync_at: string | null; consent_expires_at: string | null; created_at: string; updated_at: string }
+export type FinancialAccount = { id: string; user_id: string; connection_id: string; external_account_id: string; account_type: 'BANK' | 'CREDIT'; subtype: string | null; name: string; currency_code: string; balance: number | null; credit_limit: number | null; available_credit_limit: number | null; minimum_payment: number | null; balance_close_date: string | null; balance_due_date: string | null; details: Json; last_synced_at: string; created_at: string; updated_at: string }
+export type FinancialTransaction = { id: string; user_id: string; account_id: string; external_transaction_id: string; transaction_date: string; amount: number; currency_code: string; description: string; merchant_name: string | null; provider_type: string | null; operation_type: string | null; status: 'PENDING' | 'POSTED'; provider_category: string | null; manual_category: string | null; installment_number: number | null; total_installments: number | null; purchase_date: string | null; external_bill_id: string | null; bill_post_date: string | null; bill_forecast_month: string | null; raw_metadata: Json; last_synced_at: string; created_at: string; updated_at: string }
+export type FinancialArchivedTransaction = { id: string; user_id: string; source_row: number; transaction_date: string; history: string; description: string; amount: number; balance: number; created_at: string }
+export type FinancialBill = { id: string; user_id: string; account_id: string; external_bill_id: string; due_date: string; closing_date: string | null; total_amount: number; currency_code: string; minimum_payment_amount: number | null; allows_installments: boolean | null; raw_metadata: Json; last_synced_at: string; created_at: string; updated_at: string }
+export type FinancialSyncExecution = { id: string; user_id: string; connection_id: string; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; accounts_count: number; transactions_count: number; bills_count: number; error_code: string | null; started_at: string; finished_at: string | null }
+
 type RoutineItemRow = Omit<RoutineItem, 'category' | 'user_id'> & { category: string; user_id: string; created_at: string }
 type CompletionRow = Omit<Completion, 'user_id'> & { user_id: string; created_at: string }
 
@@ -90,6 +98,66 @@ export type Database = {
         Insert: Omit<LifeEvent, 'id' | 'user_id' | 'created_at' | 'updated_at'> & { id?: string; user_id: string; created_at?: string; updated_at?: string }
         Update: Partial<Omit<LifeEvent, 'id' | 'user_id' | 'created_at'>>
         Relationships: []
+      },
+      financial_connections: {
+        Row: FinancialConnection
+        Insert: Omit<FinancialConnection, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }
+        Update: Partial<Omit<FinancialConnection, 'id' | 'user_id' | 'provider' | 'external_item_id' | 'created_at'>>
+        Relationships: []
+      },
+      financial_accounts: {
+        Row: FinancialAccount
+        Insert: Omit<FinancialAccount, 'id' | 'created_at' | 'updated_at' | 'last_synced_at'> & { id?: string; created_at?: string; updated_at?: string; last_synced_at?: string }
+        Update: Partial<Omit<FinancialAccount, 'id' | 'user_id' | 'connection_id' | 'external_account_id' | 'created_at'>>
+        Relationships: [{
+          foreignKeyName: 'financial_accounts_connection_owner_fk'
+          columns: ['connection_id', 'user_id']
+          isOneToOne: false
+          referencedRelation: 'financial_connections'
+          referencedColumns: ['id', 'user_id']
+        }]
+      },
+      financial_transactions: {
+        Row: FinancialTransaction
+        Insert: Omit<FinancialTransaction, 'id' | 'created_at' | 'updated_at' | 'last_synced_at' | 'manual_category'> & { id?: string; created_at?: string; updated_at?: string; last_synced_at?: string; manual_category?: string | null }
+        Update: Partial<Omit<FinancialTransaction, 'id' | 'user_id' | 'account_id' | 'external_transaction_id' | 'created_at'>>
+        Relationships: [{
+          foreignKeyName: 'financial_transactions_account_owner_fk'
+          columns: ['account_id', 'user_id']
+          isOneToOne: false
+          referencedRelation: 'financial_accounts'
+          referencedColumns: ['id', 'user_id']
+        }]
+      },
+      financial_archived_transactions: {
+        Row: FinancialArchivedTransaction
+        Insert: Omit<FinancialArchivedTransaction, 'id' | 'created_at'> & { id?: string; created_at?: string }
+        Update: Partial<Omit<FinancialArchivedTransaction, 'id' | 'user_id' | 'source_row' | 'created_at'>>
+        Relationships: []
+      },
+      financial_bills: {
+        Row: FinancialBill
+        Insert: Omit<FinancialBill, 'id' | 'created_at' | 'updated_at' | 'last_synced_at'> & { id?: string; created_at?: string; updated_at?: string; last_synced_at?: string }
+        Update: Partial<Omit<FinancialBill, 'id' | 'user_id' | 'account_id' | 'external_bill_id' | 'created_at'>>
+        Relationships: [{
+          foreignKeyName: 'financial_bills_account_owner_fk'
+          columns: ['account_id', 'user_id']
+          isOneToOne: false
+          referencedRelation: 'financial_accounts'
+          referencedColumns: ['id', 'user_id']
+        }]
+      },
+      financial_sync_executions: {
+        Row: FinancialSyncExecution
+        Insert: Omit<FinancialSyncExecution, 'id' | 'started_at' | 'finished_at' | 'accounts_count' | 'transactions_count' | 'bills_count'> & { id?: string; started_at?: string; finished_at?: string | null; accounts_count?: number; transactions_count?: number; bills_count?: number }
+        Update: Partial<Omit<FinancialSyncExecution, 'id' | 'user_id' | 'connection_id' | 'started_at'>>
+        Relationships: [{
+          foreignKeyName: 'financial_sync_executions_connection_owner_fk'
+          columns: ['connection_id', 'user_id']
+          isOneToOne: false
+          referencedRelation: 'financial_connections'
+          referencedColumns: ['id', 'user_id']
+        }]
       }
     }
     Views: Record<string, never>

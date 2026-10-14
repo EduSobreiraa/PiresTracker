@@ -8,6 +8,7 @@ import type { Completion, LifeEvent, LifeEventDraft, ProjectDraft, ProjectStageD
 
 const Projects = lazy(() => import('./Projects'))
 const RoutineView = lazy(() => import('./RoutineView'))
+const FinanceView = lazy(() => import('./FinanceView'))
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -20,7 +21,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [dialogItem, setDialogItem] = useState<RoutineItem | null | undefined>(undefined)
   const [clockNow, setClockNow] = useState(() => new Date())
-  const [section, setSection] = useState<'routine' | 'projects'>('routine')
+  const [section, setSection] = useState<'routine' | 'projects' | 'finance'>('routine')
   const [projectTree, setProjectTree] = useState<ProjectTree>({ projects: [], stages: [], tasks: [] })
   const [projectLoading, setProjectLoading] = useState(false)
   const [projectError, setProjectError] = useState('')
@@ -186,9 +187,9 @@ export default function App() {
           <div className="flex items-center gap-2">{!supabase && <span className="text-xs text-muted">Demonstração local · não sincroniza</span>}{supabase && session && <button onClick={() => void signOut()} className="rounded-full border border-[#dce5dd] px-4 py-2 text-sm font-medium hover:bg-white">Sair</button>}</div>
         </header>
 
-        <nav aria-label="Navegação principal" className="mt-6 flex rounded-full border border-[#e0e8e0] bg-white p-1"><button aria-current={section === 'routine' ? 'page' : undefined} onClick={() => setSection('routine')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'routine' ? 'bg-ink text-white' : 'text-muted'}`}>Minha Rotina</button><button aria-current={section === 'projects' ? 'page' : undefined} onClick={() => setSection('projects')} className={`flex-1 rounded-full px-4 py-3 text-sm font-medium ${section === 'projects' ? 'bg-ink text-white' : 'text-muted'}`}>Meus Projetos</button></nav>
+        <nav aria-label="Navegação principal" className="mt-6 flex rounded-full border border-[#e0e8e0] bg-white p-1"><button aria-current={section === 'routine' ? 'page' : undefined} onClick={() => setSection('routine')} className={`flex-1 rounded-full px-2 py-3 text-sm font-medium sm:px-4 ${section === 'routine' ? 'bg-ink text-white' : 'text-muted'}`}>Minha Rotina</button><button aria-current={section === 'projects' ? 'page' : undefined} onClick={() => setSection('projects')} className={`flex-1 rounded-full px-2 py-3 text-sm font-medium sm:px-4 ${section === 'projects' ? 'bg-ink text-white' : 'text-muted'}`}>Meus Projetos</button><button aria-current={section === 'finance' ? 'page' : undefined} onClick={() => setSection('finance')} className={`flex-1 rounded-full px-2 py-3 text-sm font-medium sm:px-4 ${section === 'finance' ? 'bg-ink text-white' : 'text-muted'}`}>Finanças</button></nav>
 
-        <Suspense fallback={<main className="mt-8 rounded-2xl border border-[#e4eae4] bg-white p-6 text-sm text-muted" role="status">Carregando…</main>}>{section === 'projects' ? <main className="mt-8"><Projects tree={projectTree} loading={projectLoading} error={projectError} {...projectActions} /></main> : <RoutineView selectedDate={selectedDate} onSelectDate={setSelectedDate} items={items} completions={completions} loading={loading} error={error} authError={authError} clockNow={clockNow} dialogItem={dialogItem} events={events} eventsLoading={eventsLoading} eventsError={eventsError} onToggle={(item) => void toggle(item)} onAddActivity={() => setDialogItem(null)} onEditActivity={setDialogItem} onCloseDialog={() => setDialogItem(undefined)} onSaveItem={saveItem} onArchiveItem={archiveItem} onSaveEvent={saveEvent} onDeleteEvent={deleteEvent} />}</Suspense>
+        <Suspense fallback={<main className="mt-8 rounded-2xl border border-[#e4eae4] bg-white p-6 text-sm text-muted" role="status">Carregando…</main>}>{section === 'projects' ? <main className="mt-8"><Projects tree={projectTree} loading={projectLoading} error={projectError} {...projectActions} /></main> : section === 'finance' ? <FinanceView dataAccess={dataAccess} authenticated={Boolean(supabase && session)} /> : <RoutineView selectedDate={selectedDate} onSelectDate={setSelectedDate} items={items} completions={completions} loading={loading} error={error} authError={authError} clockNow={clockNow} dialogItem={dialogItem} events={events} eventsLoading={eventsLoading} eventsError={eventsError} onToggle={(item) => void toggle(item)} onAddActivity={() => setDialogItem(null)} onEditActivity={setDialogItem} onCloseDialog={() => setDialogItem(undefined)} onSaveItem={saveItem} onArchiveItem={archiveItem} onSaveEvent={saveEvent} onDeleteEvent={deleteEvent} />}</Suspense>
       </div>
     </div>
   )
