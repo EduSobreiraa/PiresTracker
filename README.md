@@ -55,7 +55,7 @@ npx supabase test db --local
 npx supabase functions serve finance-connect-start finance-connect-confirm --env-file supabase/functions/.env
 ```
 
-O runtime local valida a sessão Supabase e usa os secrets do arquivo local. As Edge Functions ainda não foram publicadas no projeto remoto.
+O runtime local valida a sessão Supabase e usa os secrets do arquivo local. As funções `finance-connect-start`, `finance-connect-confirm`, `finance-sync` e `finance-categorize` estão publicadas no projeto Supabase vinculado.
 
 Para cadastrar pontualmente um Item MeuPluggy já autorizado, use `supabase/scripts/bootstrap-financial-item.ts` em um terminal administrativo com as variáveis `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET` exportadas. Confirme que `SUPABASE_URL` aponta para o projeto correto e que o Item foi autorizado pelo proprietário antes de executar. Informe o UUID do usuário proprietário, o `itemId` e a confirmação obrigatória:
 
@@ -66,6 +66,14 @@ deno run --allow-env=SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,PLUGGY_CLIENT_ID,PLU
 O script consulta o Item diretamente na Pluggy, exige o conector MeuPluggy e não troca o proprietário de um Item já cadastrado. A chamada repetida para o mesmo proprietário não duplica a conexão. A confirmação administrativa continua necessária porque a consulta à API, sozinha, não prova a titularidade da conta bancária.
 
 O incremento 0.1B adiciona a Edge Function `finance-sync`. Ela recebe somente `connectionId`, valida a sessão Supabase e consulta a conexão do usuário antes de acessar a Pluggy. Contas, transações e faturas são atualizadas por chaves externas únicas; a categoria manual fica fora do payload de sincronização. A função registra o resultado e as contagens da execução. Ela não calcula receitas, despesas ou saldo mensal.
+
+## Classificação de movimentações
+
+A migração `20261014100000_add_financial_ai_categories.sql` adiciona uma categoria sugerida pela IA sem sobrescrever `manual_category`. A migração `20261014110000_add_financial_classification_checkpoint.sql` cria um marco separado para a classificação automática e o inicializa com a última sincronização existente. O Gemini recebe apenas movimentações sem categoria criadas depois desse marco. A primeira sincronização de uma conexão não envia dados ao modelo, pois pode importar histórico. A função processa até 50 registros por sincronização e repete os pendentes até concluir a classificação.
+
+Configure `GEMINI_API_KEY` como secret das Edge Functions no Supabase. Para execução local, adicione o valor a `supabase/functions/.env`. A chave nunca pertence às variáveis `VITE_`. A função usa o modelo `gemini-3.5-flash-lite` e envia descrição, estabelecimento, valor e tipo da operação; não envia data, conta ou identificador bancário. O prompt em português está em `financialClassificationPrompt`, em `supabase/functions/_shared/gemini-categorization.ts`. Ele pede uma categoria permitida por movimentação, trata descrições como dados não confiáveis e usa `outros` quando faltam informações. O nível gratuito pode usar o conteúdo enviado para melhorar os produtos do Google, conforme a [página de preços da Gemini API](https://ai.google.dev/gemini-api/docs/pricing).
+
+A tela mostra a sugestão e permite escolher uma categoria manual. A categoria manual tem prioridade e permanece intacta quando a Pluggy sincroniza a movimentação novamente.
 
 ## Instalar no iPhone
 

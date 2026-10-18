@@ -3,6 +3,7 @@ import { corsHeaders, handleOptions, jsonResponse } from '../_shared/http.ts'
 import { getItem, createApiKey } from '../_shared/pluggy.ts'
 import { createPluggyFinanceClient } from '../_shared/pluggy-finance.ts'
 import { normalizeAccount, normalizeBill, normalizeTransaction } from '../_shared/finance-normalization.ts'
+import { inheritNewInstallmentCategories } from '../_shared/finance-classification.ts'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const batchSize = 100
@@ -46,7 +47,7 @@ Deno.serve(async (request) => {
     const admin = adminClient()
     const { data: connection, error: connectionError } = await admin
       .from('financial_connections')
-      .select('id, user_id, external_item_id, status')
+      .select('id, user_id, external_item_id, status, last_synced_at, classification_checkpoint_at')
       .eq('id', connectionId)
       .eq('user_id', user.id)
       .maybeSingle()
@@ -129,9 +130,23 @@ Deno.serve(async (request) => {
         transactionsCount += batch.length
       })
 
+      let classification: { inherited: number; error?: string } = { inherited: 0 }
+      let advanceClassificationCheckpoint = true
+      if (connection.classification_checkpoint_at) {
+        try {
+          const result = await inheritNewInstallmentCategories(user.id, connection.classification_checkpoint_at)
+          classification = { inherited: result.inherited }
+        } catch (cause) {
+          classification.error = errorCode(cause)
+          advanceClassificationCheckpoint = false
+        }
+      }
+
       const finishedAt = new Date().toISOString()
+      const connectionUpdate: { last_synced_at: string; classification_checkpoint_at?: string } = { last_synced_at: finishedAt }
+      if (advanceClassificationCheckpoint) connectionUpdate.classification_checkpoint_at = finishedAt
       const { error: connectionUpdateError } = await admin.from('financial_connections')
-        .update({ last_synced_at: finishedAt })
+        .update(connectionUpdate)
         .eq('id', connection.id)
         .eq('user_id', user.id)
       if (connectionUpdateError) throw new Error('FINANCIAL_CONNECTION_UPDATE_FAILED')
@@ -142,7 +157,7 @@ Deno.serve(async (request) => {
         .eq('user_id', user.id)
       if (executionUpdateError) throw new Error('FINANCIAL_SYNC_FINISH_FAILED')
 
-      return jsonResponse({ syncId: execution.id, status: 'SUCCEEDED', accountsCount, transactionsCount, billsCount })
+      return jsonResponse({ syncId: execution.id, status: 'SUCCEEDED', accountsCount, transactionsCount, billsCount, classification })
     } catch (cause) {
       const code = errorCode(cause)
       const finishedAt = new Date().toISOString()

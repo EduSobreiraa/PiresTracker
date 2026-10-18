@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { bahiaToday } from './domain'
-import type { createDataAccess, FinancialWorkspace } from './data'
-import type { FinancialAccount, FinancialConnection, FinancialSyncExecution, FinancialTransaction } from './types'
+import { spendingByCategory } from './finance-chart'
+import { currentCardBill, keepFinancialTransaction, needsFinancialCategory } from './finance-history'
+import FinancialCounselor from './FinancialCounselor'
+import type { createDataAccess, FinancialCounselorMessage, FinancialWorkspace } from './data'
+import { financialCategories, financialCategoryLabels, isFinancialCategory, type FinancialAccount, type FinancialConnection, type FinancialSyncExecution, type FinancialTransaction } from './types'
 
-type FinanceAccess = Pick<ReturnType<typeof createDataAccess>, 'loadFinancialWorkspace' | 'syncFinancialConnection'>
+type FinanceAccess = Pick<ReturnType<typeof createDataAccess>, 'loadFinancialWorkspace' | 'syncFinancialConnection' | 'saveFinancialCategory' | 'saveFinancialNecessity' | 'askFinancialCounselor'>
 
 export default function FinanceView({ dataAccess, authenticated }: { dataAccess: FinanceAccess; authenticated: boolean }) {
   const [workspace, setWorkspace] = useState<FinancialWorkspace>({ connections: [], accounts: [], transactions: [], archivedTransactions: [], bills: [], syncExecutions: [] })
@@ -11,6 +14,8 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
   const [error, setError] = useState('')
   const [syncingConnectionId, setSyncingConnectionId] = useState<string | null>(null)
   const [syncMessage, setSyncMessage] = useState('')
+  const [categorySavingId, setCategorySavingId] = useState<string | null>(null)
+  const [necessitySavingId, setNecessitySavingId] = useState<string | null>(null)
   const autoSyncStartedFor = useRef<FinanceAccess | null>(null)
 
   async function refresh(): Promise<FinancialWorkspace | null> {
@@ -41,7 +46,7 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
         setSyncingConnectionId(connection.id)
         try {
           const result = await dataAccess.syncFinancialConnection(connection.id)
-          if (active) setSyncMessage(`${connection.institution_name}. Registros recebidos: ${result.accountsCount} contas, ${result.transactionsCount} movimentações e ${result.billsCount} faturas.`)
+          if (active) setSyncMessage(syncSummary(connection.institution_name, result))
         } catch (cause) {
           syncError = cause instanceof Error ? cause.message : `Não foi possível sincronizar ${connection.institution_name}.`
         } finally {
@@ -64,12 +69,39 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
     setError('')
     try {
       const result = await dataAccess.syncFinancialConnection(connection.id)
-      setSyncMessage(`${connection.institution_name}. Registros recebidos: ${result.accountsCount} contas, ${result.transactionsCount} movimentações e ${result.billsCount} faturas.`)
+      setSyncMessage(syncSummary(connection.institution_name, result))
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : `Não foi possível sincronizar ${connection.institution_name}.`)
     } finally {
       setSyncingConnectionId(null)
+    }
+  }
+
+  async function saveCategory(transaction: FinancialTransaction, value: string) {
+    setCategorySavingId(transaction.id)
+    setError('')
+    try {
+      const category = isFinancialCategory(value) ? value : null
+      await dataAccess.saveFinancialCategory(transaction.id, category)
+      await refresh()
+    } catch (cause) {
+      setError(readableFinanceError(cause))
+    } finally {
+      setCategorySavingId(null)
+    }
+  }
+
+  async function saveNecessity(transaction: FinancialTransaction, value: string) {
+    setNecessitySavingId(transaction.id)
+    setError('')
+    try {
+      await dataAccess.saveFinancialNecessity(transaction.id, value === '' ? null : value === 'true')
+      await refresh()
+    } catch (cause) {
+      setError(readableFinanceError(cause))
+    } finally {
+      setNecessitySavingId(null)
     }
   }
 
@@ -84,7 +116,9 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
   const nubankAccountIds = new Set(nubankAccounts.map(({ id }) => id))
   const nubankBills = workspace.bills.filter((bill) => nubankAccountIds.has(bill.account_id)).sort((left, right) => left.due_date.localeCompare(right.due_date))
   const today = bahiaToday()
-  const nubankBill = nubankBills.find((bill) => bill.due_date >= today) ?? nubankBills.at(-1)
+  const nubankBill = currentCardBill(nubankBills, workspace.transactions, nubankAccountIds, nubankCurrency ?? 'BRL', today)
+  const visibleTransactions = workspace.transactions.filter(needsFinancialCategory)
+  const spending = spendingByCategory(workspace.transactions.filter(keepFinancialTransaction), today)
 
   return <main className="mt-8 min-w-0" aria-labelledby="finance-heading">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -101,9 +135,9 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
           : <>
             {(santanderAccounts.length > 0 || nubankAccounts.length > 0) && <section className="mt-6" aria-labelledby="finance-highlights-heading"><h2 id="finance-highlights-heading" className="text-lg font-semibold">Resumo principal</h2><div className="mt-3 grid gap-3 lg:grid-cols-2">
               {santanderAccounts.length > 0 && <article className="rounded-[1.4rem] border border-[#e4eae4] bg-white p-5"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Santander</h3><span className="text-xs text-muted">Saldo informado</span></div><div className="mt-4 divide-y divide-[#e8ede8]">{santanderAccounts.map((account) => <div key={account.id} className="flex items-baseline justify-between gap-3 py-3 first:pt-0 last:pb-0"><div className="min-w-0"><p className="truncate text-sm font-medium">{account.name}</p><p className="mt-1 text-xs text-muted">{account.subtype ?? 'Conta bancária'}</p></div><p className="shrink-0 text-lg font-semibold">{account.balance === null ? 'Não informado' : formatMoney(account.balance, account.currency_code)}</p></div>)}</div></article>}
-              {nubankAccounts.length > 0 && <article className="rounded-[1.4rem] border border-[#e4eae4] bg-white p-5"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Nubank</h3><span className="text-xs text-muted">Saldo, limite e fatura</span></div><div className="mt-4 grid gap-3 md:grid-cols-2">
-                <section className="min-w-0 rounded-xl border border-[#e8ede8] bg-[#f8faf8] p-4" aria-label="Saldo e limite do Nubank"><h4 className="text-sm text-muted">Saldo total informado</h4><p className="mt-1 text-2xl font-semibold">{nubankTotalBalance === null ? 'Não consolidado' : formatMoney(nubankTotalBalance, nubankCurrency)}</p>{nubankTotalBalance === null && <p className="mt-1 text-xs text-muted">Confira os valores por conta abaixo.</p>}<p className="mt-4 text-xs font-medium text-muted">Saldo por conta</p><div className="mt-1 divide-y divide-[#e2e9e2]">{nubankAccounts.map((account) => <div key={account.id} className="flex items-baseline justify-between gap-2 py-2 first:pt-0"><p className="min-w-0 truncate text-sm">{account.name}</p><p className="shrink-0 text-sm font-semibold">{account.balance === null ? 'Não informado' : formatMoney(account.balance, account.currency_code)}</p></div>)}</div><div className="mt-2 border-t border-[#e2e9e2] pt-3"><p className="text-xs font-medium text-muted">Limite disponível</p><div className="mt-2 grid gap-3">{nubankAccounts.map((account) => <CreditLimitRing key={account.id} account={account} />)}</div></div></section>
-                <section className="min-w-0 rounded-xl border border-[#e8ede8] bg-[#f8faf8] p-4" aria-label="Fatura do Nubank"><h4 className="text-sm text-muted">{nubankBill ? `Fatura · vence ${formatDate(nubankBill.due_date)}` : 'Fatura'}</h4><p className="mt-1 text-2xl font-semibold">{nubankBill ? formatMoney(nubankBill.total_amount, nubankBill.currency_code) : 'Não importada'}</p>{nubankBill?.minimum_payment_amount !== null && nubankBill?.minimum_payment_amount !== undefined && <p className="mt-2 text-sm text-muted">Pagamento mínimo {formatMoney(nubankBill.minimum_payment_amount, nubankBill.currency_code)}</p>}</section>
+              {nubankAccounts.length > 0 && <article className="rounded-[1.4rem] border border-[#e4eae4] bg-white p-5"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Nubank</h3><span className="text-xs text-muted">Limite e fatura</span></div><div className="mt-4 grid gap-3 md:grid-cols-2">
+                <section className="min-w-0 rounded-xl border border-[#e8ede8] bg-[#f8faf8] p-4" aria-label="Limite do Nubank"><h4 className="text-sm text-muted">Limite utilizado informado</h4><p className="mt-1 text-2xl font-semibold">{nubankTotalBalance === null ? 'Não consolidado' : formatMoney(nubankTotalBalance, nubankCurrency)}</p>{nubankTotalBalance === null && <p className="mt-1 text-xs text-muted">Confira os valores por conta abaixo.</p>}<p className="mt-4 text-xs font-medium text-muted">Limite utilizado por conta</p><div className="mt-1 divide-y divide-[#e2e9e2]">{nubankAccounts.map((account) => <div key={account.id} className="flex items-baseline justify-between gap-2 py-2 first:pt-0"><p className="min-w-0 truncate text-sm">{account.name}</p><p className="shrink-0 text-sm font-semibold">{account.balance === null ? 'Não informado' : formatMoney(account.balance, account.currency_code)}</p></div>)}</div><div className="mt-2 border-t border-[#e2e9e2] pt-3"><p className="text-xs font-medium text-muted">Limite disponível</p><div className="mt-2 grid gap-3">{nubankAccounts.map((account) => <CreditLimitRing key={account.id} account={account} />)}</div></div></section>
+                <section className="min-w-0 rounded-xl border border-[#e8ede8] bg-[#f8faf8] p-4" aria-label="Fatura do Nubank"><h4 className="text-sm text-muted">{nubankBill.kind === 'imported' ? `Fatura · vence ${formatDate(nubankBill.bill.due_date)}` : nubankBill.kind === 'forecast' ? `Fatura em aberto · ${new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${nubankBill.month}-01T12:00:00Z`))}` : 'Fatura em aberto'}</h4><p className="mt-1 text-2xl font-semibold">{nubankBill.kind === 'imported' ? formatMoney(nubankBill.bill.total_amount, nubankBill.bill.currency_code) : nubankBill.kind === 'forecast' ? formatMoney(nubankBill.amount, nubankCurrency ?? 'BRL') : 'Não disponível'}</p>{nubankBill.kind === 'imported' && nubankBill.bill.minimum_payment_amount !== null && <p className="mt-2 text-sm text-muted">Pagamento mínimo {formatMoney(nubankBill.bill.minimum_payment_amount, nubankBill.bill.currency_code)}</p>}{nubankBill.kind === 'forecast' && <p className="mt-2 text-xs text-muted">Estimativa pelos lançamentos atribuídos a este mês. Parcelas de outros meses e pagamento da fatura anterior não entram; compras sem mês previsto podem faltar.</p>}</section>
               </div></article>}
             </div></section>}
             <section className="mt-6" aria-labelledby="connections-heading">
@@ -125,9 +159,23 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
               {workspace.accounts.length === 0 ? <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-muted">A sincronização ainda não importou contas.</p> : <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">{workspace.accounts.map((account) => <AccountCard key={account.id} account={account} institution={connectionById.get(account.connection_id)?.institution_name ?? 'Instituição'} />)}</div>}
             </section>
 
-            <details className="group mt-8" aria-labelledby="transactions-heading"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl border border-[#e4eae4] bg-white px-5 py-4 hover:bg-[#f8faf8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#244b3f]"><h2 id="transactions-heading" className="text-lg font-semibold">Movimentações recentes</h2><span aria-hidden="true" className="shrink-0 text-sm text-muted transition-transform group-open:rotate-90">▶</span></summary>
-              {workspace.transactions.length > 0 && <div className="mt-3 divide-y divide-[#e8ede8] overflow-hidden rounded-[1.4rem] border border-[#e4eae4] bg-white">{workspace.transactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} account={accountById.get(transaction.account_id)} institution={connectionById.get(accountById.get(transaction.account_id)?.connection_id ?? '')?.institution_name ?? 'Instituição'} />)}</div>}
-              {workspace.archivedTransactions.length > 0 && <div className="mt-3 divide-y divide-[#e8ede8] overflow-hidden rounded-[1.4rem] border border-[#e4eae4] bg-white">{workspace.archivedTransactions.map((entry) => <article key={entry.id} className="flex flex-wrap items-start justify-between gap-x-5 gap-y-2 px-4 py-4 sm:px-5"><div className="min-w-0 flex-1"><h3 className="break-words text-sm font-medium">{entry.description || entry.history}</h3>{entry.history && entry.history !== entry.description && <p className="mt-1 text-xs text-muted">{entry.history}</p>}<p className="mt-1 text-xs text-muted">{formatDate(entry.transaction_date)} · Inter · Saldo após lançamento {formatMoney(entry.balance, 'BRL')}</p></div><p className="shrink-0 text-sm font-semibold">{formatMoney(entry.amount, 'BRL')}</p></article>)}</div>}
+            {authenticated && <section className="mt-8 rounded-[1.4rem] border border-[#e4eae4] bg-white p-5 sm:p-6" aria-labelledby="classification-heading">
+              <div className="flex flex-wrap items-end justify-between gap-2"><div><h2 id="classification-heading" className="text-lg font-semibold">Gastos por categoria</h2><p className="mt-1 text-sm text-muted">Ciclo de {formatDate(spending.from)} a {formatDate(spending.to)}. Receitas e transferências ficam fora.</p></div><p className="text-xs text-muted">Entre as movimentações carregadas</p></div>
+              {spending.items.length ? <div className="mt-6 grid items-center gap-6 sm:grid-cols-[minmax(10rem,14rem)_1fr] sm:gap-8">
+                <div className="relative mx-auto aspect-square w-44 sm:w-full" role="img" aria-label={`Total de despesas categorizadas: ${formatMoney(spending.total, 'BRL')}`} style={{ background: spendingDonut(spending.items, spending.total) }}>
+                  <div className="absolute inset-[25%] flex flex-col items-center justify-center rounded-full bg-white text-center"><span className="text-xs text-muted">Total</span><strong className="mt-1 text-base">{formatMoney(spending.total, 'BRL')}</strong></div>
+                </div>
+                <ul className="grid gap-3 sm:grid-cols-2">{spending.items.map(({ category, amount }) => <li key={category} className="flex min-w-0 items-center gap-2"><span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: categoryColors[category] }} aria-hidden="true"/><span className="min-w-0 flex-1 truncate text-sm">{financialCategoryLabels[category]}</span><span className="shrink-0 text-right text-sm font-medium">{Math.round(amount / spending.total * 100)}%<span className="ml-2 text-muted">{formatMoney(amount, 'BRL')}</span></span></li>)}</ul>
+              </div> : <p className="mt-5 rounded-xl bg-[#f8faf8] p-4 text-sm text-muted">Ainda não há despesas categorizadas nesse período.</p>}
+              {spending.uncategorizedCount > 0 && <p className="mt-4 text-xs text-muted">{spending.uncategorizedCount} despesas sem categoria, no total de {formatMoney(spending.uncategorizedAmount, 'BRL')}, não entram no gráfico.</p>}
+              <p className="mt-3 text-xs text-muted">Você escolhe as categorias das novas compras. Ao classificar uma parcela, as demais parcelas identificadas da mesma compra recebem a mesma categoria.</p>
+            </section>}
+
+            {authenticated && <FinancialCounselor ask={(question: string, history: FinancialCounselorMessage[]) => dataAccess.askFinancialCounselor(question, history)} />}
+
+            <details className="group mt-8" aria-labelledby="transactions-heading"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl border border-[#e4eae4] bg-white px-5 py-4 hover:bg-[#f8faf8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#244b3f]"><h2 id="transactions-heading" className="text-lg font-semibold">Pendentes de categorização ({visibleTransactions.length})</h2><span aria-hidden="true" className="shrink-0 text-sm text-muted transition-transform group-open:rotate-90">▶</span></summary>
+              {visibleTransactions.length > 0 && <div className="mt-3 divide-y divide-[#e8ede8] overflow-hidden rounded-[1.4rem] border border-[#e4eae4] bg-white">{visibleTransactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} account={accountById.get(transaction.account_id)} institution={connectionById.get(accountById.get(transaction.account_id)?.connection_id ?? '')?.institution_name ?? 'Instituição'} categorySaving={categorySavingId === transaction.id} necessitySaving={necessitySavingId === transaction.id} onCategoryChange={(value) => void saveCategory(transaction, value)} onNecessityChange={(value) => void saveNecessity(transaction, value)} />)}</div>}
+              {visibleTransactions.length === 0 && <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-muted">Nenhuma movimentação pendente de categorização.</p>}
             </details>
 
             <details className="group mt-8" aria-labelledby="bills-heading"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl border border-[#e4eae4] bg-white px-5 py-4 hover:bg-[#f8faf8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#244b3f]"><h2 id="bills-heading" className="text-lg font-semibold">Faturas</h2><span aria-hidden="true" className="shrink-0 text-sm text-muted transition-transform group-open:rotate-90">▶</span></summary>
@@ -141,12 +189,34 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
   </main>
 }
 
+const categoryColors: Record<(typeof financialCategories)[number], string> = {
+  alimentacao: '#49785a', moradia: '#779a70', transporte: '#527c91', saude: '#bd7b72', educacao: '#7775a8', lazer: '#bd9457',
+  compras: '#b97753', contas_assinaturas: '#658a91', tarifas_impostos: '#82786f', transferencias: '#a6b6a6', receitas: '#476b54', outros: '#b8c4b5',
+}
+
+function spendingDonut(items: { category: (typeof financialCategories)[number]; amount: number }[], total: number): string {
+  let offset = 0
+  const segments = items.map(({ category, amount }) => {
+    const end = offset + amount / total * 100
+    const segment = `${categoryColors[category]} ${offset}% ${end}%`
+    offset = end
+    return segment
+  })
+  return `conic-gradient(${segments.join(', ')})`
+}
+
 function readableFinanceError(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : 'Não foi possível carregar seus dados financeiros.'
   if (/could not find the table 'public\.financial_[^']+' in the schema cache/i.test(message)) {
     return 'As tabelas financeiras ainda não foram aplicadas ao projeto Supabase conectado.'
   }
   return message
+}
+
+function syncSummary(institution: string, result: Awaited<ReturnType<FinanceAccess['syncFinancialConnection']>>): string {
+  const base = `${institution}. Registros recebidos: ${result.accountsCount} contas, ${result.transactionsCount} movimentações e ${result.billsCount} faturas.`
+  if (result.classificationError) return `${base} Não foi possível manter a categoria das parcelas nesta sincronização. Tente sincronizar novamente.`
+  return result.inheritedInstallmentsCount ? `${base} Categoria mantida em ${result.inheritedInstallmentsCount} parcela(s) da mesma compra.` : base
 }
 
 function AccountCard({ account, institution }: { account: FinancialAccount; institution: string }) {
@@ -169,8 +239,9 @@ function CreditLimitRing({ account }: { account: FinancialAccount }) {
   </div>
 }
 
-function TransactionRow({ transaction, account, institution }: { transaction: FinancialTransaction; account: FinancialAccount | undefined; institution: string }) {
-  return <article className="flex flex-wrap items-start justify-between gap-x-5 gap-y-2 px-4 py-4 sm:px-5"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><h3 className="break-words text-sm font-medium">{transaction.description}</h3><span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${transaction.status === 'PENDING' ? 'bg-[#f4f0df] text-[#806922]' : 'bg-moss text-[#4e6b57]'}`}>{transaction.status === 'PENDING' ? 'Pendente' : 'Efetivada'}</span></div><p className="mt-1 text-xs text-muted">{formatDate(transaction.transaction_date)} · {institution} · {account?.name ?? 'Conta'}</p><p className="mt-1 text-xs text-muted">{[transaction.provider_type, transaction.operation_type, transaction.merchant_name].filter(Boolean).join(' · ') || 'Tipo não informado'}</p></div><p className="shrink-0 text-sm font-semibold">{formatMoney(transaction.amount, transaction.currency_code)}</p></article>
+function TransactionRow({ transaction, account, institution, categorySaving, necessitySaving, onCategoryChange, onNecessityChange }: { transaction: FinancialTransaction; account: FinancialAccount | undefined; institution: string; categorySaving: boolean; necessitySaving: boolean; onCategoryChange: (category: string) => void; onNecessityChange: (value: string) => void }) {
+  const selectedCategory = transaction.manual_category ?? transaction.ai_category ?? ''
+  return <article className="flex flex-wrap items-start justify-between gap-x-5 gap-y-2 px-4 py-4 sm:px-5"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-baseline gap-x-2 gap-y-1"><h3 className="break-words text-sm font-medium">{transaction.description}</h3><span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${transaction.status === 'PENDING' ? 'bg-[#f4f0df] text-[#806922]' : 'bg-moss text-[#4e6b57]'}`}>{transaction.status === 'PENDING' ? 'Pendente' : 'Efetivada'}</span></div><p className="mt-1 text-xs text-muted">{formatDate(transaction.transaction_date)} · {institution} · {account?.name ?? 'Conta'}</p><p className="mt-1 text-xs text-muted">{[transaction.provider_type, transaction.operation_type, transaction.merchant_name].filter(Boolean).join(' · ') || 'Tipo não informado'}</p><div className="mt-2 flex flex-wrap items-center gap-2"><label className="text-xs font-medium text-muted" htmlFor={`category-${transaction.id}`}>Categoria</label><select id={`category-${transaction.id}`} value={selectedCategory} disabled={categorySaving} onChange={(event) => onCategoryChange(event.target.value)} className="rounded-lg border border-[#dbe4dc] bg-white px-2 py-1.5 text-xs"><option value="">Sem categoria</option>{transaction.manual_category && !isFinancialCategory(transaction.manual_category) && <option value={transaction.manual_category}>Manual · {transaction.manual_category}</option>}{financialCategories.map((category) => <option key={category} value={category}>{financialCategoryLabels[category]}{transaction.ai_category === category && !transaction.manual_category ? ' · sugestão Gemini' : ''}</option>)}</select><label className="ml-2 text-xs font-medium text-muted" htmlFor={`necessity-${transaction.id}`}>Minha avaliação</label><select id={`necessity-${transaction.id}`} value={transaction.is_necessary == null ? '' : String(transaction.is_necessary)} disabled={necessitySaving} onChange={(event) => onNecessityChange(event.target.value)} className="rounded-lg border border-[#dbe4dc] bg-white px-2 py-1.5 text-xs"><option value="">Não avaliada</option><option value="true">Necessária</option><option value="false">Não necessária</option></select></div>{transaction.installment_number !== null && <p className="mt-1 text-[11px] text-muted">A avaliação e a categoria são compartilhadas entre parcelas desta compra.</p>}</div><p className="shrink-0 text-sm font-semibold">{formatMoney(transaction.amount, transaction.currency_code)}</p></article>
 }
 
 function connectionStatus(connection: FinancialConnection['status'], execution: FinancialSyncExecution | undefined): { label: string; tone: string } {

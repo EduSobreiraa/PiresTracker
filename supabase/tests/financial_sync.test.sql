@@ -1,8 +1,12 @@
 begin;
-select plan(24);
+select plan(29);
 
 select ok(to_regclass('public.financial_accounts') is not null, 'financial accounts table exists');
+select has_column('public', 'financial_connections', 'classification_checkpoint_at', 'classification checkpoint stores the AI watermark separately from sync time');
 select ok(to_regclass('public.financial_transactions') is not null, 'financial transactions table exists');
+select has_column('public', 'financial_transactions', 'ai_category', 'financial transactions store the suggested AI category');
+select has_column('public', 'financial_transactions', 'ai_classified_at', 'financial transactions store when AI classified the row');
+select ok(exists (select 1 from pg_constraint where conrelid = 'public.financial_transactions'::regclass and conname = 'financial_transactions_ai_category_check'), 'AI categories are limited to the supported taxonomy');
 select ok(to_regclass('public.financial_bills') is not null, 'financial bills table exists');
 select ok(to_regclass('public.financial_sync_executions') is not null, 'financial sync executions table exists');
 select is((select count(*)::integer from pg_class where relnamespace = 'public'::regnamespace and relname in ('financial_accounts', 'financial_transactions', 'financial_bills', 'financial_sync_executions') and relrowsecurity), 4, 'RLS is enabled on every financial sync table');
@@ -45,6 +49,7 @@ values ('00000000-0000-4000-8000-000000000431', '00000000-0000-4000-8000-0000000
 insert into public.financial_transactions (user_id, account_id, external_transaction_id, transaction_date, amount, currency_code, description, provider_type, status, provider_category, raw_metadata)
 values ('00000000-0000-4000-8000-000000000401', '00000000-0000-4000-8000-000000000431', '00000000-0000-4000-8000-000000000451', '2026-10-13', -25, 'BRL', 'Compra', 'DEBIT', 'PENDING', 'Food', '{}');
 update public.financial_transactions set manual_category = 'Categoria manual' where external_transaction_id = '00000000-0000-4000-8000-000000000451';
+update public.financial_transactions set ai_category = 'alimentacao', ai_classified_at = now() where external_transaction_id = '00000000-0000-4000-8000-000000000451';
 insert into public.financial_transactions (user_id, account_id, external_transaction_id, transaction_date, amount, currency_code, description, provider_type, status, provider_category, raw_metadata)
 values ('00000000-0000-4000-8000-000000000401', '00000000-0000-4000-8000-000000000431', '00000000-0000-4000-8000-000000000451', '2026-10-13', -25, 'BRL', 'Compra', 'DEBIT', 'POSTED', 'Groceries', '{}')
 on conflict (account_id, external_transaction_id) do update
@@ -54,6 +59,7 @@ select is((select count(*)::integer from public.financial_transactions where ext
 select is((select status from public.financial_transactions where external_transaction_id = '00000000-0000-4000-8000-000000000451'), 'POSTED', 'reimport updates a pending transaction to posted');
 select is((select provider_category from public.financial_transactions where external_transaction_id = '00000000-0000-4000-8000-000000000451'), 'Groceries', 'reimport refreshes the provider category');
 select is((select manual_category from public.financial_transactions where external_transaction_id = '00000000-0000-4000-8000-000000000451'), 'Categoria manual', 'reimport preserves a manual category omitted from provider data');
+select is((select ai_category from public.financial_transactions where external_transaction_id = '00000000-0000-4000-8000-000000000451'), 'alimentacao', 'reimport preserves the saved AI category omitted from provider data');
 select is((select raw_metadata from public.financial_transactions where external_transaction_id = '00000000-0000-4000-8000-000000000451'), '{}'::jsonb, 'financial sync keeps unused provider metadata empty');
 
 insert into public.financial_bills (user_id, account_id, external_bill_id, due_date, total_amount, currency_code, raw_metadata)

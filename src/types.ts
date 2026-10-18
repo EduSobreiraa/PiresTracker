@@ -37,9 +37,19 @@ export type ProjectTaskDraft = Pick<ProjectTask, 'title' | 'description' | 'plan
 export type ProjectTree = { projects: Project[]; stages: ProjectStage[]; tasks: ProjectTask[] }
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
-export type FinancialConnection = { id: string; user_id: string; provider: 'pluggy'; external_item_id: string; institution_name: string; status: 'ACTIVE' | 'PENDING' | 'ERROR' | 'DISCONNECTED'; last_synced_at: string | null; next_auto_sync_at: string | null; consent_expires_at: string | null; created_at: string; updated_at: string }
+export const financialCategories = ['alimentacao', 'moradia', 'transporte', 'saude', 'educacao', 'lazer', 'compras', 'contas_assinaturas', 'tarifas_impostos', 'transferencias', 'receitas', 'outros'] as const
+export type FinancialCategory = (typeof financialCategories)[number]
+const financialCategorySet = new Set<string>(financialCategories)
+export function isFinancialCategory(value: unknown): value is FinancialCategory {
+  return typeof value === 'string' && financialCategorySet.has(value)
+}
+export const financialCategoryLabels: Record<FinancialCategory, string> = {
+  alimentacao: 'Alimentação', moradia: 'Moradia', transporte: 'Transporte', saude: 'Saúde', educacao: 'Educação', lazer: 'Lazer',
+  compras: 'Compras', contas_assinaturas: 'Contas e assinaturas', tarifas_impostos: 'Tarifas e impostos', transferencias: 'Transferências', receitas: 'Receitas', outros: 'Outros',
+}
+export type FinancialConnection = { id: string; user_id: string; provider: 'pluggy'; external_item_id: string; institution_name: string; status: 'ACTIVE' | 'PENDING' | 'ERROR' | 'DISCONNECTED'; last_synced_at: string | null; classification_checkpoint_at: string | null; next_auto_sync_at: string | null; consent_expires_at: string | null; created_at: string; updated_at: string }
 export type FinancialAccount = { id: string; user_id: string; connection_id: string; external_account_id: string; account_type: 'BANK' | 'CREDIT'; subtype: string | null; name: string; currency_code: string; balance: number | null; credit_limit: number | null; available_credit_limit: number | null; minimum_payment: number | null; balance_close_date: string | null; balance_due_date: string | null; details: Json; last_synced_at: string; created_at: string; updated_at: string }
-export type FinancialTransaction = { id: string; user_id: string; account_id: string; external_transaction_id: string; transaction_date: string; amount: number; currency_code: string; description: string; merchant_name: string | null; provider_type: string | null; operation_type: string | null; status: 'PENDING' | 'POSTED'; provider_category: string | null; manual_category: string | null; installment_number: number | null; total_installments: number | null; purchase_date: string | null; external_bill_id: string | null; bill_post_date: string | null; bill_forecast_month: string | null; raw_metadata: Json; last_synced_at: string; created_at: string; updated_at: string }
+export type FinancialTransaction = { id: string; user_id: string; account_id: string; external_transaction_id: string; transaction_date: string; amount: number; currency_code: string; description: string; merchant_name: string | null; provider_type: string | null; operation_type: string | null; status: 'PENDING' | 'POSTED'; provider_category: string | null; manual_category: string | null; ai_category: FinancialCategory | null; ai_classified_at: string | null; is_necessary: boolean | null; installment_number: number | null; total_installments: number | null; purchase_date: string | null; external_bill_id: string | null; bill_post_date: string | null; bill_forecast_month: string | null; raw_metadata: Json; last_synced_at: string; created_at: string; updated_at: string }
 export type FinancialArchivedTransaction = { id: string; user_id: string; source_row: number; transaction_date: string; history: string; description: string; amount: number; balance: number; created_at: string }
 export type FinancialBill = { id: string; user_id: string; account_id: string; external_bill_id: string; due_date: string; closing_date: string | null; total_amount: number; currency_code: string; minimum_payment_amount: number | null; allows_installments: boolean | null; raw_metadata: Json; last_synced_at: string; created_at: string; updated_at: string }
 export type FinancialSyncExecution = { id: string; user_id: string; connection_id: string; status: 'RUNNING' | 'SUCCEEDED' | 'FAILED'; accounts_count: number; transactions_count: number; bills_count: number; error_code: string | null; started_at: string; finished_at: string | null }
@@ -101,7 +111,7 @@ export type Database = {
       },
       financial_connections: {
         Row: FinancialConnection
-        Insert: Omit<FinancialConnection, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }
+        Insert: Omit<FinancialConnection, 'id' | 'created_at' | 'updated_at' | 'classification_checkpoint_at'> & { id?: string; created_at?: string; updated_at?: string; classification_checkpoint_at?: string | null }
         Update: Partial<Omit<FinancialConnection, 'id' | 'user_id' | 'provider' | 'external_item_id' | 'created_at'>>
         Relationships: []
       },
@@ -119,7 +129,7 @@ export type Database = {
       },
       financial_transactions: {
         Row: FinancialTransaction
-        Insert: Omit<FinancialTransaction, 'id' | 'created_at' | 'updated_at' | 'last_synced_at' | 'manual_category'> & { id?: string; created_at?: string; updated_at?: string; last_synced_at?: string; manual_category?: string | null }
+        Insert: Omit<FinancialTransaction, 'id' | 'created_at' | 'updated_at' | 'last_synced_at' | 'manual_category' | 'ai_category' | 'ai_classified_at' | 'is_necessary'> & { id?: string; created_at?: string; updated_at?: string; last_synced_at?: string; manual_category?: string | null; ai_category?: FinancialCategory | null; ai_classified_at?: string | null; is_necessary?: boolean | null }
         Update: Partial<Omit<FinancialTransaction, 'id' | 'user_id' | 'account_id' | 'external_transaction_id' | 'created_at'>>
         Relationships: [{
           foreignKeyName: 'financial_transactions_account_owner_fk'

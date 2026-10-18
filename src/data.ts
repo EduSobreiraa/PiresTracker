@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { categories, type Completion, type Database, type FinancialAccount, type FinancialArchivedTransaction, type FinancialBill, type FinancialConnection, type FinancialSyncExecution, type FinancialTransaction, type LifeEvent, type LifeEventDraft, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
+import { categories, type Completion, type Database, type FinancialAccount, type FinancialArchivedTransaction, type FinancialBill, type FinancialCategory, type FinancialConnection, type FinancialSyncExecution, type FinancialTransaction, type LifeEvent, type LifeEventDraft, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
 import { categoryIsTrackable, toggleCompletion } from './domain'
 import { initialRoutine } from './routine'
 import { isStudyGoal } from './studyPlan'
@@ -75,13 +75,21 @@ export type FinancialWorkspace = {
   syncExecutions: FinancialSyncExecution[]
 }
 
-export type FinancialSyncResult = { accountsCount: number; transactionsCount: number; billsCount: number }
+export type FinancialSyncResult = { accountsCount: number; transactionsCount: number; billsCount: number; inheritedInstallmentsCount: number; classificationError: string | null }
+export type FinancialCounselorMessage = { role: 'user' | 'assistant'; content: string }
 
 function parseFinancialSyncResult(value: unknown): FinancialSyncResult {
   if (typeof value !== 'object' || value === null || !('status' in value) || value.status !== 'SUCCEEDED' || !('accountsCount' in value) || typeof value.accountsCount !== 'number' || !('transactionsCount' in value) || typeof value.transactionsCount !== 'number' || !('billsCount' in value) || typeof value.billsCount !== 'number') {
     throw new Error('A sincronização terminou sem um resumo válido.')
   }
-  return { accountsCount: value.accountsCount, transactionsCount: value.transactionsCount, billsCount: value.billsCount }
+  const classification = 'classification' in value && typeof value.classification === 'object' && value.classification !== null ? value.classification : null
+  return {
+    accountsCount: value.accountsCount,
+    transactionsCount: value.transactionsCount,
+    billsCount: value.billsCount,
+    inheritedInstallmentsCount: classification && 'inherited' in classification && typeof classification.inherited === 'number' ? classification.inherited : 0,
+    classificationError: classification && 'error' in classification && typeof classification.error === 'string' ? classification.error : null,
+  }
 }
 
 export function createDataAccess(client: SupabaseClient<Database> | null, userId: string | null) {
@@ -175,7 +183,8 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       const [connections, accounts, transactions, archivedTransactions, bills, syncExecutions] = await Promise.all([
         client.from('financial_connections').select('*').eq('user_id', ownerId).order('institution_name'),
         client.from('financial_accounts').select('*').eq('user_id', ownerId).order('name'),
-        client.from('financial_transactions').select('*').eq('user_id', ownerId).order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(100),
+        // shortcut: only the latest 1000 rows are loaded; paginate when the account history exceeds this limit.
+        client.from('financial_transactions').select('*').eq('user_id', ownerId).order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000),
         client.from('financial_archived_transactions').select('*').eq('user_id', ownerId).order('transaction_date', { ascending: false }).order('source_row').limit(1000),
         client.from('financial_bills').select('*').eq('user_id', ownerId).order('due_date', { ascending: false }).limit(50),
         client.from('financial_sync_executions').select('*').eq('user_id', ownerId).order('started_at', { ascending: false }).limit(20),
@@ -194,6 +203,27 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       const { data, error } = await client.functions.invoke<unknown>('finance-sync', { body: { connectionId } })
       if (error) throw new Error(error.message || 'Não foi possível sincronizar esta instituição.')
       return parseFinancialSyncResult(data)
+    },
+    async saveFinancialCategory(transactionId: string, category: FinancialCategory | null): Promise<void> {
+      if (!client) throw new Error('Entre em uma sessão Supabase para editar a categoria.')
+      const { data, error } = await client.functions.invoke<unknown>('finance-categorize', { body: { action: 'set-manual-category', transactionId, category } })
+      if (error) failure(error)
+      if (typeof data !== 'object' || data === null || !('status' in data) || data.status !== 'SUCCEEDED') throw new Error('Não foi possível salvar a categoria da movimentação.')
+    },
+    async saveFinancialNecessity(transactionId: string, isNecessary: boolean | null): Promise<void> {
+      if (!client) throw new Error('Entre em uma sessão Supabase para editar a avaliação da compra.')
+      const { data, error } = await client.functions.invoke<unknown>('finance-categorize', { body: { action: 'set-manual-necessity', transactionId, isNecessary } })
+      if (error) failure(error)
+      if (typeof data !== 'object' || data === null || !('status' in data) || data.status !== 'SUCCEEDED') throw new Error('Não foi possível salvar a avaliação da compra.')
+    },
+    async askFinancialCounselor(question: string, history: FinancialCounselorMessage[]): Promise<string> {
+      if (!client) throw new Error('Entre em uma sessão Supabase para conversar com o conselheiro financeiro.')
+      const { data, error } = await client.functions.invoke<unknown>('finance-counselor', { body: { question, history } })
+      if (error) failure(error)
+      if (typeof data !== 'object' || data === null || !('answer' in data) || typeof data.answer !== 'string' || !data.answer.trim()) {
+        throw new Error('O conselheiro não retornou uma resposta válida.')
+      }
+      return data.answer
     },
     async saveLifeEvent(draft: LifeEventDraft, id?: string): Promise<LifeEvent> {
       const values = { title: draft.title.trim(), event_date: draft.event_date, description: draft.description?.trim() || null }

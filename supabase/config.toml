@@ -8,3 +8,12 @@ verify_jwt = true
 
 [functions.finance-sync]
 verify_jwt = true
+
+[functions.finance-categorize]
+verify_jwt = true
+
+[functions.finance-counselor]
+verify_jwt = true
+
+[functions.pires-tracker-ai]
+verify_jwt = true
