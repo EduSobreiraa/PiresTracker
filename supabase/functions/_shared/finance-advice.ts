@@ -1,5 +1,5 @@
 import { financialCategoryLabels, isFinancialCategory, type Completion, type FinancialCategory, type FinancialTransaction, type RoutineItem } from '../../../src/types.ts'
-import { keepFinancialTransaction } from '../../../src/finance-history.ts'
+import { financialCleanupCutoff, keepFinancialTransaction } from '../../../src/finance-history.ts'
 
 type AdviceTransaction = Pick<FinancialTransaction, 'transaction_date' | 'amount' | 'manual_category' | 'ai_category' | 'is_necessary' | 'installment_number' | 'total_installments'>
 type AdviceRoutineItem = Pick<RoutineItem, 'id' | 'weekday' | 'category' | 'is_trackable' | 'active'>
@@ -8,7 +8,8 @@ type AdviceCompletion = Pick<Completion, 'routine_item_id' | 'local_date' | 'com
 export const financialAdvicePrompt = `Você é um conselheiro pessoal de rotina e finanças. Responda em português brasileiro, com empatia e sem julgamento. Baseie cada afirmação somente na pergunta e no contexto agregado fornecido. Para perguntas sobre gastos, informe categoria, valor e ciclo de 10 a 9 quando disponível. Diferencie despesas categorizadas das sem categoria. Use as avaliações de necessidade marcadas pela pessoa para comentar apenas os valores que ela avaliou; não conclua por conta própria que uma compra era necessária ou desnecessária. O contexto não contém metas nem orçamento financeiro definido: não diga que o orçamento está adequado ou inadequado; explique essa limitação e peça uma meta se ela for necessária. Use o plano recorrente e as conclusões recentes para comentar estudos e academia, indicando os números observados e limites do período. O plano recorrente é o atual e pode não refletir mudanças feitas durante as quatro semanas observadas; mencione isso quando afetar a análise. Não invente compromissos, rendas, metas ou causas para os hábitos. Ofereça passos práticos e pequenos. Não recomende investimentos, empréstimos ou produtos financeiros específicos.`
 
 export function financialAdviceStartDate(today: string): string {
-  return dateOnly(shiftMonth(cycleStart(today), -5))
+  const cycleDate = dateOnly(shiftMonth(cycleStart(today), -5))
+  return cycleDate > financialCleanupCutoff ? cycleDate : financialCleanupCutoff
 }
 
 export function buildFinancialAdviceContext(transactions: AdviceTransaction[], routineItems: AdviceRoutineItem[], completions: AdviceCompletion[], today: string) {

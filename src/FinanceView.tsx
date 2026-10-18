@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { bahiaToday } from './domain'
-import { spendingByCategory } from './finance-chart'
-import { currentCardBill, keepFinancialTransaction, needsFinancialCategory } from './finance-history'
-import FinancialCounselor from './FinancialCounselor'
-import type { createDataAccess, FinancialCounselorMessage, FinancialWorkspace } from './data'
+import { currentCardBill, needsFinancialCategory } from './finance-history'
+import type { createDataAccess, FinancialWorkspace } from './data'
 import { financialCategories, financialCategoryLabels, isFinancialCategory, type FinancialAccount, type FinancialConnection, type FinancialSyncExecution, type FinancialTransaction } from './types'
 
-type FinanceAccess = Pick<ReturnType<typeof createDataAccess>, 'loadFinancialWorkspace' | 'syncFinancialConnection' | 'saveFinancialCategory' | 'saveFinancialNecessity' | 'askFinancialCounselor'>
+type FinanceAccess = Pick<ReturnType<typeof createDataAccess>, 'loadFinancialWorkspace' | 'syncFinancialConnection' | 'saveFinancialCategory' | 'saveFinancialNecessity'>
 
 export default function FinanceView({ dataAccess, authenticated }: { dataAccess: FinanceAccess; authenticated: boolean }) {
-  const [workspace, setWorkspace] = useState<FinancialWorkspace>({ connections: [], accounts: [], transactions: [], archivedTransactions: [], bills: [], syncExecutions: [] })
+  const [workspace, setWorkspace] = useState<FinancialWorkspace>({ connections: [], accounts: [], transactions: [], bills: [], syncExecutions: [] })
   const [loading, setLoading] = useState(authenticated)
   const [error, setError] = useState('')
   const [syncingConnectionId, setSyncingConnectionId] = useState<string | null>(null)
@@ -118,7 +116,6 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
   const today = bahiaToday()
   const nubankBill = currentCardBill(nubankBills, workspace.transactions, nubankAccountIds, nubankCurrency ?? 'BRL', today)
   const visibleTransactions = workspace.transactions.filter(needsFinancialCategory)
-  const spending = spendingByCategory(workspace.transactions.filter(keepFinancialTransaction), today)
 
   return <main className="mt-8 min-w-0" aria-labelledby="finance-heading">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -131,7 +128,7 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
 
     {!authenticated ? <section className="mt-5 rounded-[1.5rem] border border-dashed border-[#cbd7cc] bg-white/70 px-6 py-8" aria-label="Finanças indisponível na demonstração local"><h2 className="font-semibold">Conecte o Supabase para consultar suas finanças.</h2><p className="mt-1 max-w-xl text-sm leading-6 text-muted">A demonstração local não contém dados bancários e não executa sincronizações.</p></section>
       : loading && workspace.connections.length === 0 ? <div role="status" className="mt-5 rounded-2xl border border-[#e4eae4] bg-white p-6 text-sm text-muted">Carregando dados financeiros…</div>
-        : error && workspace.connections.length === 0 && workspace.accounts.length === 0 && workspace.transactions.length === 0 && workspace.archivedTransactions.length === 0 && workspace.bills.length === 0 ? <section className="mt-5 rounded-[1.5rem] border border-[#e4eae4] bg-white px-6 py-8"><h2 className="font-semibold">Finanças ainda não está preparada neste projeto Supabase.</h2><p className="mt-1 max-w-xl text-sm leading-6 text-muted">As tabelas financeiras precisam ser aplicadas ao projeto conectado antes de listar instituições e movimentações.</p></section>
+        : error && workspace.connections.length === 0 && workspace.accounts.length === 0 && workspace.transactions.length === 0 && workspace.bills.length === 0 ? <section className="mt-5 rounded-[1.5rem] border border-[#e4eae4] bg-white px-6 py-8"><h2 className="font-semibold">Finanças ainda não está preparada neste projeto Supabase.</h2><p className="mt-1 max-w-xl text-sm leading-6 text-muted">As tabelas financeiras precisam ser aplicadas ao projeto conectado antes de listar instituições e movimentações.</p></section>
           : <>
             {(santanderAccounts.length > 0 || nubankAccounts.length > 0) && <section className="mt-6" aria-labelledby="finance-highlights-heading"><h2 id="finance-highlights-heading" className="text-lg font-semibold">Resumo principal</h2><div className="mt-3 grid gap-3 lg:grid-cols-2">
               {santanderAccounts.length > 0 && <article className="rounded-[1.4rem] border border-[#e4eae4] bg-white p-5"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Santander</h3><span className="text-xs text-muted">Saldo informado</span></div><div className="mt-4 divide-y divide-[#e8ede8]">{santanderAccounts.map((account) => <div key={account.id} className="flex items-baseline justify-between gap-3 py-3 first:pt-0 last:pb-0"><div className="min-w-0"><p className="truncate text-sm font-medium">{account.name}</p><p className="mt-1 text-xs text-muted">{account.subtype ?? 'Conta bancária'}</p></div><p className="shrink-0 text-lg font-semibold">{account.balance === null ? 'Não informado' : formatMoney(account.balance, account.currency_code)}</p></div>)}</div></article>}
@@ -159,20 +156,6 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
               {workspace.accounts.length === 0 ? <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-muted">A sincronização ainda não importou contas.</p> : <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">{workspace.accounts.map((account) => <AccountCard key={account.id} account={account} institution={connectionById.get(account.connection_id)?.institution_name ?? 'Instituição'} />)}</div>}
             </section>
 
-            {authenticated && <section className="mt-8 rounded-[1.4rem] border border-[#e4eae4] bg-white p-5 sm:p-6" aria-labelledby="classification-heading">
-              <div className="flex flex-wrap items-end justify-between gap-2"><div><h2 id="classification-heading" className="text-lg font-semibold">Gastos por categoria</h2><p className="mt-1 text-sm text-muted">Ciclo de {formatDate(spending.from)} a {formatDate(spending.to)}. Receitas e transferências ficam fora.</p></div><p className="text-xs text-muted">Entre as movimentações carregadas</p></div>
-              {spending.items.length ? <div className="mt-6 grid items-center gap-6 sm:grid-cols-[minmax(10rem,14rem)_1fr] sm:gap-8">
-                <div className="relative mx-auto aspect-square w-44 sm:w-full" role="img" aria-label={`Total de despesas categorizadas: ${formatMoney(spending.total, 'BRL')}`} style={{ background: spendingDonut(spending.items, spending.total) }}>
-                  <div className="absolute inset-[25%] flex flex-col items-center justify-center rounded-full bg-white text-center"><span className="text-xs text-muted">Total</span><strong className="mt-1 text-base">{formatMoney(spending.total, 'BRL')}</strong></div>
-                </div>
-                <ul className="grid gap-3 sm:grid-cols-2">{spending.items.map(({ category, amount }) => <li key={category} className="flex min-w-0 items-center gap-2"><span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: categoryColors[category] }} aria-hidden="true"/><span className="min-w-0 flex-1 truncate text-sm">{financialCategoryLabels[category]}</span><span className="shrink-0 text-right text-sm font-medium">{Math.round(amount / spending.total * 100)}%<span className="ml-2 text-muted">{formatMoney(amount, 'BRL')}</span></span></li>)}</ul>
-              </div> : <p className="mt-5 rounded-xl bg-[#f8faf8] p-4 text-sm text-muted">Ainda não há despesas categorizadas nesse período.</p>}
-              {spending.uncategorizedCount > 0 && <p className="mt-4 text-xs text-muted">{spending.uncategorizedCount} despesas sem categoria, no total de {formatMoney(spending.uncategorizedAmount, 'BRL')}, não entram no gráfico.</p>}
-              <p className="mt-3 text-xs text-muted">Você escolhe as categorias das novas compras. Ao classificar uma parcela, as demais parcelas identificadas da mesma compra recebem a mesma categoria.</p>
-            </section>}
-
-            {authenticated && <FinancialCounselor ask={(question: string, history: FinancialCounselorMessage[]) => dataAccess.askFinancialCounselor(question, history)} />}
-
             <details className="group mt-8" aria-labelledby="transactions-heading"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl border border-[#e4eae4] bg-white px-5 py-4 hover:bg-[#f8faf8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#244b3f]"><h2 id="transactions-heading" className="text-lg font-semibold">Pendentes de categorização ({visibleTransactions.length})</h2><span aria-hidden="true" className="shrink-0 text-sm text-muted transition-transform group-open:rotate-90">▶</span></summary>
               {visibleTransactions.length > 0 && <div className="mt-3 divide-y divide-[#e8ede8] overflow-hidden rounded-[1.4rem] border border-[#e4eae4] bg-white">{visibleTransactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} account={accountById.get(transaction.account_id)} institution={connectionById.get(accountById.get(transaction.account_id)?.connection_id ?? '')?.institution_name ?? 'Instituição'} categorySaving={categorySavingId === transaction.id} necessitySaving={necessitySavingId === transaction.id} onCategoryChange={(value) => void saveCategory(transaction, value)} onNecessityChange={(value) => void saveNecessity(transaction, value)} />)}</div>}
               {visibleTransactions.length === 0 && <p className="mt-3 rounded-2xl bg-white p-5 text-sm text-muted">Nenhuma movimentação pendente de categorização.</p>}
@@ -187,22 +170,6 @@ export default function FinanceView({ dataAccess, authenticated }: { dataAccess:
             </details>
           </>}
   </main>
-}
-
-const categoryColors: Record<(typeof financialCategories)[number], string> = {
-  alimentacao: '#49785a', moradia: '#779a70', transporte: '#527c91', saude: '#bd7b72', educacao: '#7775a8', lazer: '#bd9457',
-  compras: '#b97753', contas_assinaturas: '#658a91', tarifas_impostos: '#82786f', transferencias: '#a6b6a6', receitas: '#476b54', outros: '#b8c4b5',
-}
-
-function spendingDonut(items: { category: (typeof financialCategories)[number]; amount: number }[], total: number): string {
-  let offset = 0
-  const segments = items.map(({ category, amount }) => {
-    const end = offset + amount / total * 100
-    const segment = `${categoryColors[category]} ${offset}% ${end}%`
-    offset = end
-    return segment
-  })
-  return `conic-gradient(${segments.join(', ')})`
 }
 
 function readableFinanceError(cause: unknown): string {

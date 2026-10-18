@@ -2,12 +2,11 @@ import type { FinancialBill, FinancialTransaction } from './types'
 
 export const financialCleanupCutoff = '2026-10-07'
 
-export function keepFinancialTransaction(transaction: Pick<FinancialTransaction, 'transaction_date' | 'amount' | 'installment_number' | 'total_installments'>): boolean {
-  const isInstallment = (transaction.total_installments ?? 0) > 1 || (transaction.installment_number ?? 0) > 1
-  return transaction.amount >= 0 || transaction.transaction_date >= financialCleanupCutoff || isInstallment
+export function keepFinancialTransaction(transaction: Pick<FinancialTransaction, 'transaction_date'>): boolean {
+  return transaction.transaction_date >= financialCleanupCutoff
 }
 
-export function needsFinancialCategory(transaction: Pick<FinancialTransaction, 'transaction_date' | 'amount' | 'installment_number' | 'total_installments' | 'manual_category' | 'ai_category'>): boolean {
+export function needsFinancialCategory(transaction: Pick<FinancialTransaction, 'transaction_date' | 'manual_category' | 'ai_category'>): boolean {
   return keepFinancialTransaction(transaction) && transaction.manual_category === null && transaction.ai_category === null
 }
 

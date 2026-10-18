@@ -14,9 +14,10 @@ describe('copilotMetrics', () => {
   it('calculates category totals in code', () => {
     const transaction = { transaction_date: '2026-10-15', amount: -25.5, manual_category: 'alimentacao', ai_category: null, is_necessary: null, installment_number: null, total_installments: null }
     const income = { ...transaction, amount: 100, manual_category: 'receitas' }
-    const metrics = copilotMetrics([], [], [transaction, income], '2026-10-18')
+    const metrics = copilotMetrics([], [], [transaction, income, { ...income, transaction_date: '2026-10-06', amount: 500 }], '2026-10-18')
     expect(metrics.finance.cycles[0].expensesByCategory).toEqual({ Alimentação: 25.5 })
     expect(metrics.finance.cycles[0].classifiedExpenseTotal).toBe(25.5)
     expect(metrics.finance.incomeByCycle[0].classifiedIncome).toBe(100)
+    expect(metrics.finance.incomeByCycle[1].classifiedIncome).toBe(0)
   })
 })

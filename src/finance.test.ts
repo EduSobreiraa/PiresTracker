@@ -1,49 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { createClient } from '@supabase/supabase-js'
 import { createDataAccess } from './data'
-import { spendingByCategory } from './finance-chart'
 import { currentCardBill, keepFinancialTransaction, needsFinancialCategory } from './finance-history'
 import type { Database } from './types'
 
 const ownerId = '00000000-0000-4000-8000-000000000501'
 const connectionId = '00000000-0000-4000-8000-000000000502'
 
-describe('financial spending breakdown', () => {
-  it('sums classified expenses in the 10-to-9 cycle and excludes income, transfers, and older rows', () => {
-    const result = spendingByCategory([
-      { transaction_date: '2026-10-10', amount: -100, manual_category: null, ai_category: 'alimentacao' },
-      { transaction_date: '2026-11-09', amount: -50, manual_category: 'saude', ai_category: 'alimentacao' },
-      { transaction_date: '2026-10-10', amount: -30, manual_category: null, ai_category: null },
-      { transaction_date: '2026-10-10', amount: -20, manual_category: null, ai_category: 'transferencias' },
-      { transaction_date: '2026-10-10', amount: 200, manual_category: null, ai_category: 'receitas' },
-      { transaction_date: '2026-10-09', amount: -10, manual_category: null, ai_category: 'lazer' },
-    ], '2026-10-17')
-
-    expect(result).toEqual({
-      from: '2026-10-10',
-      to: '2026-11-09',
-      items: [{ category: 'alimentacao', amount: 100 }, { category: 'saude', amount: 50 }],
-      total: 150,
-      uncategorizedAmount: 30,
-      uncategorizedCount: 1,
-    })
-  })
-
-  it('starts the next cycle on the 10th and retains the previous cycle through the 9th', () => {
-    const transaction = { transaction_date: '2026-11-09', amount: -10, manual_category: null, ai_category: 'lazer' as const }
-    expect(spendingByCategory([transaction], '2026-11-09').from).toBe('2026-10-10')
-    expect(spendingByCategory([transaction], '2026-11-09').total).toBe(10)
-    expect(spendingByCategory([transaction], '2026-11-10')).toMatchObject({ from: '2026-11-10', to: '2026-12-09', total: 0 })
-  })
-})
-
 describe('financial history cutoff', () => {
-  it('hides pre-October 7 expenses unless installment metadata identifies a parcel', () => {
+  it('hides every transaction before October 7, including credits and installments', () => {
     const base = { amount: -20, transaction_date: '2026-10-06', installment_number: null, total_installments: null }
+    const installment = { ...base, installment_number: 1, total_installments: 3 }
+    const credit = { ...base, amount: 20 }
     expect(keepFinancialTransaction(base)).toBe(false)
-    expect(keepFinancialTransaction({ ...base, installment_number: 1, total_installments: 3 })).toBe(true)
+    expect(keepFinancialTransaction(installment)).toBe(false)
     expect(keepFinancialTransaction({ ...base, transaction_date: '2026-10-07' })).toBe(true)
-    expect(keepFinancialTransaction({ ...base, amount: 20 })).toBe(true)
+    expect(keepFinancialTransaction(credit)).toBe(false)
   })
 })
 
@@ -51,6 +23,7 @@ describe('financial presentation', () => {
   it('lists only transactions without either manual or AI category', () => {
     const base = { amount: 20, transaction_date: '2026-10-18', installment_number: null, total_installments: null, manual_category: null, ai_category: null }
     expect(needsFinancialCategory(base)).toBe(true)
+    expect(needsFinancialCategory({ ...base, transaction_date: '2026-10-06' })).toBe(false)
     expect(needsFinancialCategory({ ...base, manual_category: 'compras' })).toBe(false)
     expect(needsFinancialCategory({ ...base, ai_category: 'compras' })).toBe(false)
   })
@@ -107,8 +80,9 @@ describe('financial data access', () => {
     const workspace = await dataAccess.loadFinancialWorkspace()
     expect(workspace.connections.map(({ institution_name }) => institution_name)).toEqual(['Nubank'])
     expect(workspace.transactions.map(({ description, status }) => [description, status])).toEqual([['Mercado', 'PENDING']])
-    expect(requestedTables.sort()).toEqual(['financial_accounts', 'financial_archived_transactions', 'financial_bills', 'financial_connections', 'financial_sync_executions', 'financial_transactions'])
+    expect(requestedTables.sort()).toEqual(['financial_accounts', 'financial_bills', 'financial_connections', 'financial_sync_executions', 'financial_transactions'])
     expect(requestedQueries.every((url) => url.searchParams.get('user_id') === `eq.${ownerId}`)).toBe(true)
+    expect(requestedQueries.find((url) => url.pathname.endsWith('/financial_transactions'))?.searchParams.get('transaction_date')).toBe('gte.2026-10-07')
 
     await expect(dataAccess.syncFinancialConnection(connectionId)).resolves.toEqual({ accountsCount: 2, transactionsCount: 3, billsCount: 1, inheritedInstallmentsCount: 1, classificationError: null })
     expect(syncBody).toEqual({ connectionId })
@@ -141,23 +115,4 @@ describe('financial data access', () => {
     ])
   })
 
-  it('sends a counselor question with a bounded conversation and returns its answer', async () => {
-    let sent: unknown
-    const client = createClient<Database>('https://finance.test.supabase.co', 'publishable-key', {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { fetch: async (input, init) => {
-        if (String(input).includes('/functions/v1/finance-counselor')) sent = JSON.parse(String(init?.body))
-        return Response.json({ answer: 'Você gastou R$ 80 com alimentação neste ciclo.' })
-      } },
-    })
-
-    await expect(createDataAccess(client, ownerId).askFinancialCounselor('Quanto gastei com alimentação?', [
-      { role: 'user', content: 'Oi' },
-      { role: 'assistant', content: 'Olá!' },
-    ])).resolves.toBe('Você gastou R$ 80 com alimentação neste ciclo.')
-    expect(sent).toEqual({ question: 'Quanto gastei com alimentação?', history: [
-      { role: 'user', content: 'Oi' },
-      { role: 'assistant', content: 'Olá!' },
-    ] })
-  })
 })

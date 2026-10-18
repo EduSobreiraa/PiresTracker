@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { categories, type Completion, type Database, type FinancialAccount, type FinancialArchivedTransaction, type FinancialBill, type FinancialCategory, type FinancialConnection, type FinancialSyncExecution, type FinancialTransaction, type LifeEvent, type LifeEventDraft, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
+import { categories, type Completion, type Database, type FinancialAccount, type FinancialBill, type FinancialCategory, type FinancialConnection, type FinancialSyncExecution, type FinancialTransaction, type LifeEvent, type LifeEventDraft, type Project, type ProjectDraft, type ProjectStage, type ProjectStageDraft, type ProjectTask, type ProjectTaskDraft, type ProjectTree, type RoutineDraft, type RoutineItem, type StudyGoal } from './types'
 import { categoryIsTrackable, toggleCompletion } from './domain'
 import { initialRoutine } from './routine'
 import { isStudyGoal } from './studyPlan'
 import { awsProjectSeed, isProject, isProjectStage, isProjectTask, seedLocalAwsProject } from './projectPlan'
+import { financialCleanupCutoff } from './finance-history'
 
 type LocalData = { items: RoutineItem[]; completions: Completion[]; studyGoals: StudyGoal[]; projects: Project[]; projectStages: ProjectStage[]; projectTasks: ProjectTask[]; lifeEvents: LifeEvent[]; projectSeeded: boolean }
 const localKey = 'minha-rotina-v1'
@@ -70,13 +71,11 @@ export type FinancialWorkspace = {
   connections: FinancialConnection[]
   accounts: FinancialAccount[]
   transactions: FinancialTransaction[]
-  archivedTransactions: FinancialArchivedTransaction[]
   bills: FinancialBill[]
   syncExecutions: FinancialSyncExecution[]
 }
 
 export type FinancialSyncResult = { accountsCount: number; transactionsCount: number; billsCount: number; inheritedInstallmentsCount: number; classificationError: string | null }
-export type FinancialCounselorMessage = { role: 'user' | 'assistant'; content: string }
 
 function parseFinancialSyncResult(value: unknown): FinancialSyncResult {
   if (typeof value !== 'object' || value === null || !('status' in value) || value.status !== 'SUCCEEDED' || !('accountsCount' in value) || typeof value.accountsCount !== 'number' || !('transactionsCount' in value) || typeof value.transactionsCount !== 'number' || !('billsCount' in value) || typeof value.billsCount !== 'number') {
@@ -180,22 +179,20 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
     async loadFinancialWorkspace(): Promise<FinancialWorkspace> {
       const ownerId = requireUserId(userId)
       if (!client) throw new Error('Entre em uma sessão Supabase para consultar seus dados financeiros.')
-      const [connections, accounts, transactions, archivedTransactions, bills, syncExecutions] = await Promise.all([
+      const [connections, accounts, transactions, bills, syncExecutions] = await Promise.all([
         client.from('financial_connections').select('*').eq('user_id', ownerId).order('institution_name'),
         client.from('financial_accounts').select('*').eq('user_id', ownerId).order('name'),
         // shortcut: only the latest 1000 rows are loaded; paginate when the account history exceeds this limit.
-        client.from('financial_transactions').select('*').eq('user_id', ownerId).order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000),
-        client.from('financial_archived_transactions').select('*').eq('user_id', ownerId).order('transaction_date', { ascending: false }).order('source_row').limit(1000),
+        client.from('financial_transactions').select('*').eq('user_id', ownerId).gte('transaction_date', financialCleanupCutoff).order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000),
         client.from('financial_bills').select('*').eq('user_id', ownerId).order('due_date', { ascending: false }).limit(50),
         client.from('financial_sync_executions').select('*').eq('user_id', ownerId).order('started_at', { ascending: false }).limit(20),
       ])
       if (connections.error) failure(connections.error)
       if (accounts.error) failure(accounts.error)
       if (transactions.error) failure(transactions.error)
-      if (archivedTransactions.error && !['42P01', 'PGRST205'].includes(archivedTransactions.error.code ?? '')) failure(archivedTransactions.error)
       if (bills.error) failure(bills.error)
       if (syncExecutions.error) failure(syncExecutions.error)
-      return { connections: connections.data, accounts: accounts.data, transactions: transactions.data, archivedTransactions: archivedTransactions.data ?? [], bills: bills.data, syncExecutions: syncExecutions.data }
+      return { connections: connections.data, accounts: accounts.data, transactions: transactions.data, bills: bills.data, syncExecutions: syncExecutions.data }
     },
     async syncFinancialConnection(connectionId: string): Promise<FinancialSyncResult> {
       requireUserId(userId)
@@ -215,15 +212,6 @@ export function createDataAccess(client: SupabaseClient<Database> | null, userId
       const { data, error } = await client.functions.invoke<unknown>('finance-categorize', { body: { action: 'set-manual-necessity', transactionId, isNecessary } })
       if (error) failure(error)
       if (typeof data !== 'object' || data === null || !('status' in data) || data.status !== 'SUCCEEDED') throw new Error('Não foi possível salvar a avaliação da compra.')
-    },
-    async askFinancialCounselor(question: string, history: FinancialCounselorMessage[]): Promise<string> {
-      if (!client) throw new Error('Entre em uma sessão Supabase para conversar com o conselheiro financeiro.')
-      const { data, error } = await client.functions.invoke<unknown>('finance-counselor', { body: { question, history } })
-      if (error) failure(error)
-      if (typeof data !== 'object' || data === null || !('answer' in data) || typeof data.answer !== 'string' || !data.answer.trim()) {
-        throw new Error('O conselheiro não retornou uma resposta válida.')
-      }
-      return data.answer
     },
     async saveLifeEvent(draft: LifeEventDraft, id?: string): Promise<LifeEvent> {
       const values = { title: draft.title.trim(), event_date: draft.event_date, description: draft.description?.trim() || null }

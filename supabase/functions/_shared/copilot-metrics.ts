@@ -1,4 +1,5 @@
 import { buildFinancialAdviceContext } from './finance-advice.ts'
+import { keepFinancialTransaction } from '../../../src/finance-history.ts'
 import { isFinancialCategory, type Completion, type FinancialTransaction, type RoutineItem } from '../../../src/types.ts'
 
 type Item = Pick<RoutineItem, 'id' | 'weekday' | 'starts_at' | 'ends_at' | 'title' | 'category' | 'is_trackable' | 'active'>
@@ -11,7 +12,7 @@ export function copilotMetrics(items: Item[], completions: Done[], transactions:
     let classifiedIncome = 0
     let unclassifiedPositive = 0
     for (const entry of transactions) {
-      if (entry.transaction_date < cycle.from || entry.transaction_date > cycle.to || entry.transaction_date > today || entry.amount <= 0) continue
+      if (!keepFinancialTransaction(entry) || entry.transaction_date < cycle.from || entry.transaction_date > cycle.to || entry.transaction_date > today || entry.amount <= 0) continue
       const category = isFinancialCategory(entry.manual_category) ? entry.manual_category : entry.ai_category
       if (category === 'receitas') classifiedIncome += entry.amount
       else if (category !== 'transferencias') unclassifiedPositive += entry.amount
